@@ -4,7 +4,9 @@ use anyhow::Context;
 
 use crate::{
     cli::{Cli, Command, PackageArgs, TestArgs},
+    config,
     error::StbError,
+    runner::planner,
 };
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
@@ -26,8 +28,15 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
         ensure_path_exists(path)?;
     }
 
+    if args.test_archive.is_some() || args.score_archive.is_some() {
+        return Err(StbError::NotImplemented("archive-based loading").into());
+    }
+
+    let loaded = config::load_loose_config(&args.input)?;
+
     if args.dry_run {
-        print_test_dry_run(&args);
+        let plan = planner::build_dry_run_plan(&loaded, &args)?;
+        print_test_dry_run(&args, &loaded, &plan);
         return Ok(());
     }
 
@@ -46,7 +55,7 @@ fn run_package(kind: &'static str, args: PackageArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_test_dry_run(args: &TestArgs) {
+fn print_test_dry_run(args: &TestArgs, loaded: &config::LoadedConfig, plan: &planner::DryRunPlan) {
     println!("STB dry run");
     println!("input: {}", display_path(&args.input));
     println!(
@@ -101,7 +110,29 @@ fn print_test_dry_run(args: &TestArgs) {
             .map(display_format_name)
             .unwrap_or_else(|| "table".to_string())
     );
-    println!("planner status: pending implementation");
+    println!("loaded providers: {}", loaded.providers.len());
+    println!("loaded models: {}", loaded.models.len());
+    println!("loaded system prompts: {}", loaded.system_prompts.len());
+    println!("loaded tests: {}", loaded.tests.len());
+    println!("selected providers: {}", plan.provider_count);
+    println!("selected model instances: {}", plan.selected_model_count);
+    println!("total tests: {}", plan.test_count);
+    println!("total repeat units: {}", plan.total_repeats);
+    println!("planned requests: {}", plan.planned_requests);
+
+    for model in &plan.selected_models {
+        println!(
+            "- {}/{} [{}] endpoint={} provider_concurrency={} effective_concurrency={} rpm={} planned_requests={}",
+            model.provider_id,
+            model.model_id,
+            model.api_style,
+            model.endpoint,
+            model.configured_concurrency,
+            model.effective_concurrency,
+            model.rpm,
+            model.planned_requests,
+        );
+    }
 }
 
 fn display_format_name(format: crate::cli::DisplayFormat) -> String {

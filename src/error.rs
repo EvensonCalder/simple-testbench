@@ -9,4 +9,10 @@ pub enum StbError {
 
     #[error("path does not exist: {0}")]
     MissingPath(PathBuf),
+
+    #[error("invalid configuration: {0}")]
+    InvalidConfig(String),
+
+    #[error("no model instances matched the requested filters")]
+    NoModelsSelected,
 }

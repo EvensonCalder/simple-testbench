@@ -30,11 +30,34 @@ fn prints_version() {
 fn supports_test_dry_run() {
     Command::cargo_bin("stb")
         .expect("binary should build")
-        .args(["test", "--dry-run"])
+        .args(["test", "--dry-run", "-i", "example"])
         .assert()
         .success()
         .stdout(predicate::str::contains("STB dry run"))
+        .stdout(predicate::str::contains("selected model instances: 4"))
+        .stdout(predicate::str::contains("total tests: 10"))
+        .stdout(predicate::str::contains("planned requests: 40"));
+}
+
+#[test]
+fn supports_filtered_test_dry_run() {
+    Command::cargo_bin("stb")
+        .expect("binary should build")
+        .args([
+            "test",
+            "--dry-run",
+            "-i",
+            "example",
+            "--provider",
+            "openrouter",
+            "--model",
+            "z-ai/glm-5.1",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("selected model instances: 1"))
+        .stdout(predicate::str::contains("planned requests: 10"))
         .stdout(predicate::str::contains(
-            "planner status: pending implementation",
+            "openrouter/z-ai/glm-5.1 [openai_responses]",
         ));
 }
