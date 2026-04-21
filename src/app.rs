@@ -36,7 +36,13 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    Err(StbError::NotImplemented("benchmark execution").into())
+    let summary = crate::runner::executor::run_test_session(&loaded, &args)?;
+    println!("output dir: {}", display_path(&summary.output_dir));
+    println!("completed requests: {}", summary.completed_requests);
+    println!("failed requests: {}", summary.failed_requests);
+    println!("skipped requests: {}", summary.skipped_requests);
+
+    Ok(())
 }
 
 fn run_package(kind: &'static str, args: PackageArgs) -> anyhow::Result<()> {

@@ -17,16 +17,18 @@ Implemented today:
 - real dry-run planning with provider and model filters
 - `.stbt` packaging and archive-backed test loading
 - `.stbs` packaging for scoring assets
+- first live execution path for `openai_chat_completions`
+- `output.json` persistence for executed requests
 - initial `example/` fixtures that define the target file formats
 
 Planned next:
 
-- OpenAI Chat Completions execution path
 - resumable `output.json`
 - Lua post-processing and scoring
 - AI scoring
 - OpenAI Responses support
 - Anthropic Messages support
+- final reporting outputs
 
 ## Design Goals
 
@@ -47,7 +49,7 @@ stb --help
 stb --version
 ```
 
-Current note: dry-run planning and archive packaging are implemented, but live benchmark execution is not yet implemented.
+Current note: live execution currently supports `openai_chat_completions` only. `openai_responses`, `anthropic_messages`, scoring, resume, and final result reporting are still in progress.
 
 ## Build
 
