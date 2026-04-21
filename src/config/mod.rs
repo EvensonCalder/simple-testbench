@@ -10,6 +10,7 @@ use anyhow::Context;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::archive;
 use crate::error::StbError;
 
 const PROVIDERS_FILE: &str = "providers.json";
@@ -123,18 +124,27 @@ pub struct LoadedConfig {
     pub tests: Vec<TestCase>,
 }
 
-pub fn load_loose_config(input_dir: &Path) -> anyhow::Result<LoadedConfig> {
+pub fn load_config(input_dir: &Path, test_archive: Option<&Path>) -> anyhow::Result<LoadedConfig> {
     let providers = read_json_file::<ProvidersFile>(&input_dir.join(PROVIDERS_FILE))?.providers;
     let models = read_json_file::<ModelsFile>(&input_dir.join(MODELS_FILE))?.models;
 
-    let system_prompts =
-        read_optional_json_file::<SystemPromptsFile>(&input_dir.join(SYSTEM_PROMPTS_FILE))?
-            .map(|file| file.system_prompts)
-            .unwrap_or_default();
-
-    let tests = read_optional_json_file::<TestsFile>(&input_dir.join(TESTS_FILE))?
-        .map(|file| file.tests)
-        .unwrap_or_default();
+    let (system_prompts, tests) = if let Some(path) = test_archive {
+        let bundle = archive::load_test_bundle(path)?;
+        (
+            parse_json_str::<SystemPromptsFile>(&bundle.system_prompts_json, SYSTEM_PROMPTS_FILE)?
+                .system_prompts,
+            parse_json_str::<TestsFile>(&bundle.tests_json, TESTS_FILE)?.tests,
+        )
+    } else {
+        (
+            read_optional_json_file::<SystemPromptsFile>(&input_dir.join(SYSTEM_PROMPTS_FILE))?
+                .map(|file| file.system_prompts)
+                .unwrap_or_default(),
+            read_optional_json_file::<TestsFile>(&input_dir.join(TESTS_FILE))?
+                .map(|file| file.tests)
+                .unwrap_or_default(),
+        )
+    };
 
     let loaded = LoadedConfig {
         input_dir: input_dir.to_path_buf(),
@@ -147,6 +157,10 @@ pub fn load_loose_config(input_dir: &Path) -> anyhow::Result<LoadedConfig> {
     validate_loaded_config(&loaded)?;
 
     Ok(loaded)
+}
+
+pub fn load_loose_config(input_dir: &Path) -> anyhow::Result<LoadedConfig> {
+    load_config(input_dir, None)
 }
 
 pub fn resolve_selected_models<'a>(
@@ -363,6 +377,13 @@ where
     }
 
     read_json_file(path).map(Some)
+}
+
+fn parse_json_str<T>(content: &str, source: &str) -> anyhow::Result<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    serde_json::from_str(content).with_context(|| format!("failed to parse {source}"))
 }
 
 fn display_path(path: &Path) -> &str {

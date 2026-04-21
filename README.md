@@ -11,15 +11,16 @@ The repository is in active development.
 Implemented today:
 
 - git repository and Rust workspace initialization
-- command-line skeleton for `stb test`, `stb mkt`, and `stb mks`
+- command-line support for `stb test`, `stb mkt`, and `stb mks`
 - initial architecture and roadmap documents
-- basic dry-run output and CLI tests
+- loose-file config loading and validation for providers, models, system prompts, and tests
+- real dry-run planning with provider and model filters
+- `.stbt` packaging and archive-backed test loading
+- `.stbs` packaging for scoring assets
 - initial `example/` fixtures that define the target file formats
 
 Planned next:
 
-- configuration loading and validation
-- test bundle loading from loose files and `.stbt`
 - OpenAI Chat Completions execution path
 - resumable `output.json`
 - Lua post-processing and scoring
@@ -46,7 +47,7 @@ stb --help
 stb --version
 ```
 
-Current note: only argument parsing and `stb test --dry-run` are implemented so far.
+Current note: dry-run planning and archive packaging are implemented, but live benchmark execution is not yet implemented.
 
 ## Build
 

@@ -28,11 +28,7 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
         ensure_path_exists(path)?;
     }
 
-    if args.test_archive.is_some() || args.score_archive.is_some() {
-        return Err(StbError::NotImplemented("archive-based loading").into());
-    }
-
-    let loaded = config::load_loose_config(&args.input)?;
+    let loaded = config::load_config(&args.input, args.test_archive.as_deref())?;
 
     if args.dry_run {
         let plan = planner::build_dry_run_plan(&loaded, &args)?;
@@ -46,11 +42,18 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
 fn run_package(kind: &'static str, args: PackageArgs) -> anyhow::Result<()> {
     ensure_path_exists(&args.input)?;
 
+    let bundle = match kind {
+        "test" => crate::archive::package_test_bundle(&args.input, &args.output)?,
+        "scoring" => crate::archive::package_scoring_bundle(&args.input, &args.output)?,
+        _ => return Err(StbError::NotImplemented("unknown package kind").into()),
+    };
+
     println!(
-        "Packaging {kind} inputs from {} into {} is not implemented yet.",
-        display_path(&args.input),
-        display_path(&args.output),
+        "Packaged {} bundle to {}",
+        bundle.kind,
+        display_path(&args.output)
     );
+    println!("included files: {}", bundle.files.join(", "));
 
     Ok(())
 }
