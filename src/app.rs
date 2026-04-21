@@ -41,6 +41,7 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
     println!("completed requests: {}", summary.completed_requests);
     println!("failed requests: {}", summary.failed_requests);
     println!("skipped requests: {}", summary.skipped_requests);
+    println!("resumed requests: {}", summary.resumed_requests);
 
     Ok(())
 }

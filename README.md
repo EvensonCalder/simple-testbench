@@ -18,12 +18,11 @@ Implemented today:
 - `.stbt` packaging and archive-backed test loading
 - `.stbs` packaging for scoring assets
 - first live execution path for `openai_chat_completions`
-- `output.json` persistence for executed requests
+- `output.json` persistence and resume for executed requests
 - initial `example/` fixtures that define the target file formats
 
 Planned next:
 
-- resumable `output.json`
 - Lua post-processing and scoring
 - AI scoring
 - OpenAI Responses support

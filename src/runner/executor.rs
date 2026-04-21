@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 
@@ -16,6 +16,7 @@ pub struct ExecutionSummary {
     pub completed_requests: usize,
     pub failed_requests: usize,
     pub skipped_requests: usize,
+    pub resumed_requests: usize,
 }
 
 pub fn run_test_session(
@@ -54,13 +55,28 @@ pub fn run_test_session(
     let output_path = output::output_json_path(&output_dir);
     let system_prompt_index = system_prompt_index(loaded);
     let retry_policy = RetryPolicy::from_retry_count(args.retry);
-    let mut run_output = RunOutput::new();
+    let mut run_output = if args.fresh || !output_path.exists() {
+        RunOutput::new()
+    } else {
+        output::load_run_output(&output_path)?
+    };
+    let mut existing_records = run_output
+        .records
+        .iter()
+        .map(ExecutionRecord::key)
+        .collect::<HashSet<_>>();
+    let mut disabled_models = disabled_models(&run_output);
     let mut completed_requests = 0usize;
     let mut failed_requests = 0usize;
     let mut skipped_requests = 0usize;
+    let mut resumed_requests = 0usize;
 
     for resolved in selected {
-        let mut disabled_reason: Option<String> = None;
+        let model_key = (
+            resolved.provider.provider_id.clone(),
+            resolved.model.model_id.clone(),
+        );
+        let mut disabled_reason = disabled_models.get(&model_key).cloned();
 
         for test_case in &loaded.tests {
             let system_prompt = system_prompt_index
@@ -76,8 +92,20 @@ pub fn run_test_session(
 
             let repeat_count = args.repeat.unwrap_or(test_case.repeat);
             for repeat_index in 1..=repeat_count {
+                let record_key = output::RecordKey {
+                    provider_id: resolved.provider.provider_id.clone(),
+                    model_id: resolved.model.model_id.clone(),
+                    test_id: test_case.id.clone(),
+                    repeat_index,
+                };
+
+                if existing_records.contains(&record_key) {
+                    resumed_requests += 1;
+                    continue;
+                }
+
                 if let Some(reason) = &disabled_reason {
-                    run_output.records.push(ExecutionRecord {
+                    let record = ExecutionRecord {
                         id: output::next_record_id(),
                         provider_id: resolved.provider.provider_id.clone(),
                         model_id: resolved.model.model_id.clone(),
@@ -88,7 +116,9 @@ pub fn run_test_session(
                         attempts: 0,
                         output_text: None,
                         error: Some(reason.clone()),
-                    });
+                    };
+                    existing_records.insert(record.key());
+                    run_output.records.push(record);
                     output::write_run_output(&output_path, &run_output)?;
                     skipped_requests += 1;
                     continue;
@@ -103,7 +133,7 @@ pub fn run_test_session(
                     args.verbose,
                 ) {
                     Ok(execution) => {
-                        run_output.records.push(ExecutionRecord {
+                        let record = ExecutionRecord {
                             id: output::next_record_id(),
                             provider_id: resolved.provider.provider_id.clone(),
                             model_id: resolved.model.model_id.clone(),
@@ -114,13 +144,15 @@ pub fn run_test_session(
                             attempts: execution.attempts,
                             output_text: Some(execution.output_text),
                             error: None,
-                        });
+                        };
+                        existing_records.insert(record.key());
+                        run_output.records.push(record);
                         output::write_run_output(&output_path, &run_output)?;
                         completed_requests += 1;
                     }
                     Err(error) => {
                         let rendered = error.to_string();
-                        run_output.records.push(ExecutionRecord {
+                        let record = ExecutionRecord {
                             id: output::next_record_id(),
                             provider_id: resolved.provider.provider_id.clone(),
                             model_id: resolved.model.model_id.clone(),
@@ -131,10 +163,15 @@ pub fn run_test_session(
                             attempts: args.retry + 1,
                             output_text: None,
                             error: Some(rendered.clone()),
-                        });
+                        };
+                        existing_records.insert(record.key());
+                        run_output.records.push(record);
                         output::write_run_output(&output_path, &run_output)?;
                         failed_requests += 1;
                         disabled_reason = Some(rendered);
+                        if let Some(reason) = &disabled_reason {
+                            disabled_models.insert(model_key.clone(), reason.clone());
+                        }
                     }
                 }
             }
@@ -146,6 +183,7 @@ pub fn run_test_session(
         completed_requests,
         failed_requests,
         skipped_requests,
+        resumed_requests,
     })
 }
 
@@ -154,5 +192,21 @@ fn system_prompt_index(loaded: &LoadedConfig) -> HashMap<&str, &SystemPrompt> {
         .system_prompts
         .iter()
         .map(|prompt| (prompt.id.as_str(), prompt))
+        .collect()
+}
+
+fn disabled_models(run_output: &RunOutput) -> HashMap<(String, String), String> {
+    run_output
+        .records
+        .iter()
+        .filter(|record| record.status == RecordStatus::Failed)
+        .filter_map(|record| {
+            record.error.as_ref().map(|error| {
+                (
+                    (record.provider_id.clone(), record.model_id.clone()),
+                    error.clone(),
+                )
+            })
+        })
         .collect()
 }

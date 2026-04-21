@@ -7,10 +7,10 @@ use std::{
 };
 
 use anyhow::Context;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RunOutput {
     pub records: Vec<ExecutionRecord>,
 }
@@ -23,7 +23,7 @@ impl RunOutput {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ExecutionRecord {
     pub id: String,
     pub provider_id: String,
@@ -37,12 +37,31 @@ pub struct ExecutionRecord {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordStatus {
     Success,
     Failed,
     SkippedModelDisabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RecordKey {
+    pub provider_id: String,
+    pub model_id: String,
+    pub test_id: String,
+    pub repeat_index: u32,
+}
+
+impl ExecutionRecord {
+    pub fn key(&self) -> RecordKey {
+        RecordKey {
+            provider_id: self.provider_id.clone(),
+            model_id: self.model_id.clone(),
+            test_id: self.test_id.clone(),
+            repeat_index: self.repeat_index,
+        }
+    }
 }
 
 pub fn prepare_output_dir(
@@ -76,6 +95,13 @@ pub fn prepare_output_dir(
 
 pub fn output_json_path(output_dir: &Path) -> PathBuf {
     output_dir.join("output.json")
+}
+
+pub fn load_run_output(path: &Path) -> anyhow::Result<RunOutput> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", display_path(path)))?;
+    serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", display_path(path)))
 }
 
 pub fn write_run_output(path: &Path, run_output: &RunOutput) -> anyhow::Result<()> {
