@@ -1,0 +1,16 @@
+{
+  "providers": [
+    {
+      "provider_id": "openrouter",
+      "key": null,
+      "env_key": "OPENROUTER_API_KEY",
+      "concurrency": 4,
+      "rpm": 60,
+      "endpoints": {
+        "openai_chat_completions": "https://openrouter.ai/api/v1",
+        "openai_responses": "https://openrouter.ai/api/v1/responses",
+        "anthropic_messages": "https://openrouter.ai/api/v1/messages"
+      }
+    }
+  ]
+}

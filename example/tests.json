@@ -1,0 +1,114 @@
+{
+  "tests": [
+    {
+      "id": "todo-001",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Please remind me to buy milk on 2026-04-24 at 22:13:20 UTC at the supermarket."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-002",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Set a task to call Alice on 2026-05-01 09:30:00 UTC from home."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-003",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Create a reminder to submit the tax form at 2026-05-03 16:00:00 UTC in the downtown office."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-004",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Add a todo for dentist appointment on 2026-05-02T06:30:00Z at Bright Dental Clinic."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-005",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Remember to pick up the package on 2026-04-24 at 18:45:00 UTC at Locker 12."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-006",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Create a todo to attend the design review at 2026-04-28 15:00:00 UTC in HQ Room 301."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-007",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Note to self: buy flowers on 2026-04-30 17:20:00 UTC at Riverside Mall."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-008",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Please schedule renew passport for 2026-06-01 08:00:00 UTC at the city service center."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-009",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "I need a reminder to meet Bob in Central Park at 2026-04-25 12:00:00 UTC."
+        }
+      ],
+      "repeat": 1
+    },
+    {
+      "id": "todo-010",
+      "system_prompt": "todo_json_v1",
+      "input": [
+        {
+          "type": "text",
+          "text": "Add send quarterly report for 2026-07-15 16:00:00 UTC at the office."
+        }
+      ],
+      "repeat": 1
+    }
+  ]
+}

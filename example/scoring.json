@@ -1,0 +1,14 @@
+{
+  "scoring": [
+    {
+      "name": "json",
+      "kind": "lua",
+      "file": "score_json.lua"
+    },
+    {
+      "name": "extraction_quality",
+      "kind": "ai",
+      "file": "score_extract_ai.json"
+    }
+  ]
+}
