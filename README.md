@@ -22,7 +22,7 @@ Requires a working Rust toolchain (`cargo`).
 Clone and build in release mode:
 
 ```bash
-git clone <your-fork-url> stb
+git clone https://github.com/EvensonCalder/simple-testbench.git stb
 cd stb
 cargo build --release
 ```
@@ -443,4 +443,6 @@ Design and implementation notes for contributors:
 
 ## License
 
-See repository LICENSE.
+STB is distributed under the [MIT License](LICENSE).
+
+Copyright © 2026 EvensonCalder.

@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 description = "Structured task bench for model evaluation"
 license = "MIT"
+authors = ["EvensonCalder <2443444863@qq.com>"]
+repository = "https://github.com/EvensonCalder/simple-testbench"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
