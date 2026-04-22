@@ -1,10 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 use anyhow::anyhow;
 
 use crate::{
     cli::TestArgs,
-    config::{resolve_selected_models, LoadedConfig, SystemPrompt},
+    config::{LoadedConfig, SystemPrompt, resolve_selected_models},
     error::StbError,
     llm::{self, RetryPolicy},
     output::{self, ExecutionRecord, RecordStatus, ReportArtifacts, RunOutput},
@@ -58,7 +61,7 @@ pub fn run_test_session(
     for resolved in selected {
         let model_key = (
             resolved.provider.provider_id.clone(),
-            resolved.model.model_id.clone(),
+            resolved.model.instance_id(),
         );
         let mut disabled_reason = disabled_models.get(&model_key).cloned();
 
@@ -79,6 +82,7 @@ pub fn run_test_session(
                 let record_key = output::RecordKey {
                     provider_id: resolved.provider.provider_id.clone(),
                     model_id: resolved.model.model_id.clone(),
+                    model_instance_id: resolved.model.instance_id(),
                     test_id: test_case.id.clone(),
                     repeat_index,
                 };
@@ -104,11 +108,14 @@ pub fn run_test_session(
                         id: output::next_record_id(),
                         provider_id: resolved.provider.provider_id.clone(),
                         model_id: resolved.model.model_id.clone(),
+                        model_instance_id: resolved.model.instance_id(),
+                        model_config_key: resolved.model.config_key(),
                         test_id: test_case.id.clone(),
                         repeat_index,
                         api_style: resolved.model.api_style.as_str().to_string(),
                         status: RecordStatus::SkippedModelDisabled,
                         attempts: 0,
+                        elapsed_ms: 0,
                         output_text: None,
                         processed_output: None,
                         post_process_applied: false,
@@ -123,6 +130,8 @@ pub fn run_test_session(
                     skipped_requests += 1;
                     continue;
                 }
+
+                let request_started = Instant::now();
 
                 match execute_request_with_scoring(
                     loaded,
@@ -140,11 +149,14 @@ pub fn run_test_session(
                             id: output::next_record_id(),
                             provider_id: resolved.provider.provider_id.clone(),
                             model_id: resolved.model.model_id.clone(),
+                            model_instance_id: resolved.model.instance_id(),
+                            model_config_key: resolved.model.config_key(),
                             test_id: test_case.id.clone(),
                             repeat_index,
                             api_style: resolved.model.api_style.as_str().to_string(),
                             status: RecordStatus::Success,
                             attempts: execution.attempts,
+                            elapsed_ms: execution.elapsed_ms,
                             output_text: Some(execution.output_text),
                             processed_output: Some(execution.processed_output),
                             post_process_applied: execution.post_process_applied,
@@ -174,11 +186,14 @@ pub fn run_test_session(
                             id: output::next_record_id(),
                             provider_id: resolved.provider.provider_id.clone(),
                             model_id: resolved.model.model_id.clone(),
+                            model_instance_id: resolved.model.instance_id(),
+                            model_config_key: resolved.model.config_key(),
                             test_id: test_case.id.clone(),
                             repeat_index,
                             api_style: resolved.model.api_style.as_str().to_string(),
                             status: RecordStatus::Failed,
                             attempts: u32::from(args.retry) + 1,
+                            elapsed_ms: request_started.elapsed().as_millis() as u64,
                             output_text: None,
                             processed_output: None,
                             post_process_applied: false,
@@ -218,6 +233,7 @@ struct CompletedExecution {
     output_text: String,
     processed_output: String,
     attempts: u32,
+    elapsed_ms: u64,
     post_process_applied: bool,
     post_process_retries: u32,
     scores: Vec<crate::output::ScoreResult>,
@@ -235,6 +251,7 @@ fn execute_request_with_scoring(
     verbose: bool,
 ) -> anyhow::Result<CompletedExecution> {
     let mut total_attempts = 0u32;
+    let mut total_elapsed_ms = 0u64;
     let mut post_process_retries = 0u32;
     let request_label = format!("test={}", test_case.id);
     let user_prompt = llm::build_test_user_prompt(test_case)?;
@@ -250,6 +267,7 @@ fn execute_request_with_scoring(
             &request_label,
         )?;
         total_attempts += u32::from(execution.attempts);
+        total_elapsed_ms += execution.elapsed_ms;
 
         let (processed_output, post_process_applied, should_retry, max_retry) =
             post_process_output(&execution.output_text, scoring_config, disable_post_process)?;
@@ -284,6 +302,7 @@ fn execute_request_with_scoring(
             output_text: execution.output_text,
             processed_output,
             attempts: total_attempts,
+            elapsed_ms: total_elapsed_ms,
             post_process_applied,
             post_process_retries,
             scores,
@@ -396,7 +415,7 @@ fn disabled_models(run_output: &RunOutput) -> HashMap<(String, String), String> 
         .filter_map(|record| {
             record.error.as_ref().map(|error| {
                 (
-                    (record.provider_id.clone(), record.model_id.clone()),
+                    (record.provider_id.clone(), record.model_instance_id.clone()),
                     error.clone(),
                 )
             })

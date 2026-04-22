@@ -19,15 +19,17 @@ Implemented today:
 - `.stbs` packaging for scoring assets
 - live execution for `openai_chat_completions`, `openai_responses`, and `anthropic_messages`
 - `output.json` persistence and resume for executed requests and scores
+- per-request elapsed time persistence in `output.json`
 - Lua post-processing with retry contract support
 - Lua custom scoring and AI judge scoring
 - `results.json`, `score_mean.csv`, and `score_std.csv` report generation
+- `duration_mean.csv` report generation for average request time per model instance
 - simple terminal table and JSON aggregate display
 - initial `example/` fixtures that define the target file formats
 
 ## Design Goals
 
-- strict provider-plus-model identity
+- strict provider-plus-model identity, with distinct instances for parameter-different configs
 - support multiple request styles under one provider definition
 - own the request layer so behavior stays explicit and auditable
 - keep the execution core testable and modular
@@ -44,7 +46,7 @@ stb --help
 stb --version
 ```
 
-Current note: STB now executes all three target request styles, strips reasoning or thinking from normalized output, runs Lua and AI scorers during benchmark execution, persists intermediate state in `output.json`, and writes aggregate CSV and JSON reports at the end of a run.
+Current note: STB now executes all three target request styles, strips reasoning or thinking from normalized output, records per-request elapsed time, runs Lua and AI scorers during benchmark execution, persists intermediate state in `output.json`, and writes aggregate CSV and JSON reports at the end of a run.
 
 ## Build
 

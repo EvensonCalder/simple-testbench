@@ -29,11 +29,17 @@ pub struct ExecutionRecord {
     pub id: String,
     pub provider_id: String,
     pub model_id: String,
+    #[serde(default)]
+    pub model_instance_id: String,
+    #[serde(default)]
+    pub model_config_key: String,
     pub test_id: String,
     pub repeat_index: u32,
     pub api_style: String,
     pub status: RecordStatus,
     pub attempts: u32,
+    #[serde(default)]
+    pub elapsed_ms: u64,
     pub output_text: Option<String>,
     #[serde(default)]
     pub processed_output: Option<String>,
@@ -61,6 +67,8 @@ pub struct ScoreResult {
 pub struct ScoreAggregate {
     pub provider_id: String,
     pub model_id: String,
+    pub model_instance_id: String,
+    pub model_config_key: String,
     pub score_name: String,
     pub kind: String,
     pub count: usize,
@@ -68,10 +76,21 @@ pub struct ScoreAggregate {
     pub std_dev: f64,
 }
 
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct DurationAggregate {
+    pub provider_id: String,
+    pub model_id: String,
+    pub model_instance_id: String,
+    pub model_config_key: String,
+    pub successful_count: usize,
+    pub mean_elapsed_ms: Option<f64>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ResultsReport {
     pub records: Vec<ExecutionRecord>,
-    pub aggregates: Vec<ScoreAggregate>,
+    pub score_aggregates: Vec<ScoreAggregate>,
+    pub duration_aggregates: Vec<DurationAggregate>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,8 +98,10 @@ pub struct ReportArtifacts {
     pub results_json: Option<PathBuf>,
     pub score_mean_csv: PathBuf,
     pub score_std_csv: PathBuf,
-    pub aggregates: Vec<ScoreAggregate>,
-    pub terminal_table: String,
+    pub duration_mean_csv: PathBuf,
+    pub score_aggregates: Vec<ScoreAggregate>,
+    pub duration_aggregates: Vec<DurationAggregate>,
+    pub terminal_report: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -103,6 +124,7 @@ pub enum RecordStatus {
 pub struct RecordKey {
     pub provider_id: String,
     pub model_id: String,
+    pub model_instance_id: String,
     pub test_id: String,
     pub repeat_index: u32,
 }
@@ -112,6 +134,7 @@ impl ExecutionRecord {
         RecordKey {
             provider_id: self.provider_id.clone(),
             model_id: self.model_id.clone(),
+            model_instance_id: self.model_instance_id.clone(),
             test_id: self.test_id.clone(),
             repeat_index: self.repeat_index,
         }
@@ -139,6 +162,7 @@ pub fn prepare_output_dir(
             output_dir.join("results.json"),
             output_dir.join("score_mean.csv"),
             output_dir.join("score_std.csv"),
+            output_dir.join("duration_mean.csv"),
         ] {
             if path
                 .try_exists()
@@ -179,17 +203,21 @@ pub fn write_reports(
     run_output: &RunOutput,
     write_results_json: bool,
 ) -> anyhow::Result<ReportArtifacts> {
-    let aggregates = build_score_aggregates(run_output);
+    let score_aggregates = build_score_aggregates(run_output);
+    let duration_aggregates = build_duration_aggregates(run_output);
     let score_mean_csv = output_dir.join("score_mean.csv");
     let score_std_csv = output_dir.join("score_std.csv");
-    write_score_mean_csv(&score_mean_csv, &aggregates)?;
-    write_score_std_csv(&score_std_csv, &aggregates)?;
+    let duration_mean_csv = output_dir.join("duration_mean.csv");
+    write_score_mean_csv(&score_mean_csv, &score_aggregates)?;
+    write_score_std_csv(&score_std_csv, &score_aggregates)?;
+    write_duration_mean_csv(&duration_mean_csv, &duration_aggregates)?;
 
     let results_json = if write_results_json {
         let path = output_dir.join("results.json");
         let report = ResultsReport {
             records: run_output.records.clone(),
-            aggregates: aggregates.clone(),
+            score_aggregates: score_aggregates.clone(),
+            duration_aggregates: duration_aggregates.clone(),
         };
         let content =
             serde_json::to_string_pretty(&report).context("failed to serialize results.json")?;
@@ -204,13 +232,15 @@ pub fn write_reports(
         results_json,
         score_mean_csv,
         score_std_csv,
-        aggregates: aggregates.clone(),
-        terminal_table: render_terminal_table(&aggregates),
+        duration_mean_csv,
+        score_aggregates: score_aggregates.clone(),
+        duration_aggregates: duration_aggregates.clone(),
+        terminal_report: render_terminal_report(&duration_aggregates, &score_aggregates),
     })
 }
 
 pub fn build_score_aggregates(run_output: &RunOutput) -> Vec<ScoreAggregate> {
-    let mut grouped = BTreeMap::<(String, String, String, String), Vec<f64>>::new();
+    let mut grouped = BTreeMap::<(String, String, String, String, String, String), Vec<f64>>::new();
 
     for record in &run_output.records {
         if record.status != RecordStatus::Success {
@@ -230,6 +260,8 @@ pub fn build_score_aggregates(run_output: &RunOutput) -> Vec<ScoreAggregate> {
                 .entry((
                     record.provider_id.clone(),
                     record.model_id.clone(),
+                    record.model_instance_id.clone(),
+                    record.model_config_key.clone(),
                     score.name.clone(),
                     score.kind.clone(),
                 ))
@@ -240,32 +272,125 @@ pub fn build_score_aggregates(run_output: &RunOutput) -> Vec<ScoreAggregate> {
 
     grouped
         .into_iter()
-        .map(|((provider_id, model_id, score_name, kind), values)| {
-            let count = values.len();
-            let mean = values.iter().sum::<f64>() / count as f64;
-            let variance = values
-                .iter()
-                .map(|value| {
-                    let delta = value - mean;
-                    delta * delta
-                })
-                .sum::<f64>()
-                / count as f64;
+        .map(
+            |(
+                (provider_id, model_id, model_instance_id, model_config_key, score_name, kind),
+                values,
+            )| {
+                let count = values.len();
+                let mean = values.iter().sum::<f64>() / count as f64;
+                let variance = values
+                    .iter()
+                    .map(|value| {
+                        let delta = value - mean;
+                        delta * delta
+                    })
+                    .sum::<f64>()
+                    / count as f64;
 
-            ScoreAggregate {
-                provider_id,
-                model_id,
-                score_name,
-                kind,
-                count,
-                mean,
-                std_dev: variance.sqrt(),
-            }
-        })
+                ScoreAggregate {
+                    provider_id,
+                    model_id,
+                    model_instance_id,
+                    model_config_key,
+                    score_name,
+                    kind,
+                    count,
+                    mean,
+                    std_dev: variance.sqrt(),
+                }
+            },
+        )
         .collect()
 }
 
-pub fn render_terminal_table(aggregates: &[ScoreAggregate]) -> String {
+pub fn build_duration_aggregates(run_output: &RunOutput) -> Vec<DurationAggregate> {
+    let mut grouped = BTreeMap::<(String, String, String, String), Vec<f64>>::new();
+
+    for record in &run_output.records {
+        grouped
+            .entry((
+                record.provider_id.clone(),
+                record.model_id.clone(),
+                record.model_instance_id.clone(),
+                record.model_config_key.clone(),
+            ))
+            .or_default();
+
+        if record.status == RecordStatus::Success && record.elapsed_ms > 0 {
+            grouped
+                .get_mut(&(
+                    record.provider_id.clone(),
+                    record.model_id.clone(),
+                    record.model_instance_id.clone(),
+                    record.model_config_key.clone(),
+                ))
+                .expect("duration grouping entry should exist")
+                .push(record.elapsed_ms as f64);
+        }
+    }
+
+    grouped
+        .into_iter()
+        .map(
+            |((provider_id, model_id, model_instance_id, model_config_key), values)| {
+                DurationAggregate {
+                    provider_id,
+                    model_id,
+                    model_instance_id,
+                    model_config_key,
+                    successful_count: values.len(),
+                    mean_elapsed_ms: (!values.is_empty())
+                        .then(|| values.iter().sum::<f64>() / values.len() as f64),
+                }
+            },
+        )
+        .collect()
+}
+
+pub fn render_terminal_report(
+    duration_aggregates: &[DurationAggregate],
+    score_aggregates: &[ScoreAggregate],
+) -> String {
+    let mut sections = Vec::new();
+
+    if !duration_aggregates.is_empty() {
+        sections.push(render_duration_table(duration_aggregates));
+    }
+
+    if !score_aggregates.is_empty() {
+        sections.push(render_score_table(score_aggregates));
+    }
+
+    if sections.is_empty() {
+        return "No duration or score aggregates available.".to_string();
+    }
+
+    sections.join("\n\n")
+}
+
+fn render_duration_table(aggregates: &[DurationAggregate]) -> String {
+    let headers = ["provider_id", "model_id", "instance", "count", "avg_ms"];
+    let rows = aggregates
+        .iter()
+        .map(|aggregate| {
+            vec![
+                aggregate.provider_id.clone(),
+                aggregate.model_id.clone(),
+                short_instance_id(&aggregate.model_instance_id),
+                aggregate.successful_count.to_string(),
+                aggregate
+                    .mean_elapsed_ms
+                    .map(|value| format!("{value:.2}"))
+                    .unwrap_or_else(|| "N/A".to_string()),
+            ]
+        })
+        .collect::<Vec<_>>();
+
+    render_table("Duration", &headers, &rows)
+}
+
+fn render_score_table(aggregates: &[ScoreAggregate]) -> String {
     if aggregates.is_empty() {
         return "No scored outputs available.".to_string();
     }
@@ -273,6 +398,7 @@ pub fn render_terminal_table(aggregates: &[ScoreAggregate]) -> String {
     let headers = [
         "provider_id",
         "model_id",
+        "instance",
         "score",
         "kind",
         "count",
@@ -285,6 +411,7 @@ pub fn render_terminal_table(aggregates: &[ScoreAggregate]) -> String {
             vec![
                 aggregate.provider_id.clone(),
                 aggregate.model_id.clone(),
+                short_instance_id(&aggregate.model_instance_id),
                 aggregate.score_name.clone(),
                 aggregate.kind.clone(),
                 aggregate.count.to_string(),
@@ -294,30 +421,44 @@ pub fn render_terminal_table(aggregates: &[ScoreAggregate]) -> String {
         })
         .collect::<Vec<_>>();
 
+    render_table("Scores", &headers, &rows)
+}
+
+fn render_table(title: &str, headers: &[&str], rows: &[Vec<String>]) -> String {
+    let header_cells = headers
+        .iter()
+        .map(|header| (*header).to_string())
+        .collect::<Vec<_>>();
     let mut widths = headers
         .iter()
         .map(|header| header.len())
         .collect::<Vec<_>>();
-    for row in &rows {
+    for row in rows {
         for (index, cell) in row.iter().enumerate() {
             widths[index] = widths[index].max(cell.len());
         }
     }
 
     let mut lines = Vec::new();
-    lines.push(format_row(&headers.map(str::to_string), &widths));
+    lines.push(title.to_string());
+    lines.push(format_row(&header_cells, &widths));
     lines.push(format_separator(&widths));
     lines.extend(rows.iter().map(|row| format_row(row, &widths)));
     lines.join("\n")
 }
 
 fn write_score_mean_csv(path: &Path, aggregates: &[ScoreAggregate]) -> anyhow::Result<()> {
-    let mut lines = vec!["provider_id,model_id,score_name,kind,count,mean".to_string()];
+    let mut lines = vec![
+        "provider_id,model_id,model_instance_id,model_config_key,score_name,kind,count,mean"
+            .to_string(),
+    ];
     lines.extend(aggregates.iter().map(|aggregate| {
         format!(
-            "{},{},{},{},{},{:.4}",
+            "{},{},{},{},{},{},{},{:.4}",
             csv_field(&aggregate.provider_id),
             csv_field(&aggregate.model_id),
+            csv_field(&aggregate.model_instance_id),
+            csv_field(&aggregate.model_config_key),
             csv_field(&aggregate.score_name),
             csv_field(&aggregate.kind),
             aggregate.count,
@@ -329,12 +470,17 @@ fn write_score_mean_csv(path: &Path, aggregates: &[ScoreAggregate]) -> anyhow::R
 }
 
 fn write_score_std_csv(path: &Path, aggregates: &[ScoreAggregate]) -> anyhow::Result<()> {
-    let mut lines = vec!["provider_id,model_id,score_name,kind,count,std_dev".to_string()];
+    let mut lines = vec![
+        "provider_id,model_id,model_instance_id,model_config_key,score_name,kind,count,std_dev"
+            .to_string(),
+    ];
     lines.extend(aggregates.iter().map(|aggregate| {
         format!(
-            "{},{},{},{},{},{:.4}",
+            "{},{},{},{},{},{},{},{:.4}",
             csv_field(&aggregate.provider_id),
             csv_field(&aggregate.model_id),
+            csv_field(&aggregate.model_instance_id),
+            csv_field(&aggregate.model_config_key),
             csv_field(&aggregate.score_name),
             csv_field(&aggregate.kind),
             aggregate.count,
@@ -343,6 +489,33 @@ fn write_score_std_csv(path: &Path, aggregates: &[ScoreAggregate]) -> anyhow::Re
     }));
     fs::write(path, lines.join("\n"))
         .with_context(|| format!("failed to write {}", display_path(path)))
+}
+
+fn write_duration_mean_csv(path: &Path, aggregates: &[DurationAggregate]) -> anyhow::Result<()> {
+    let mut lines = vec![
+        "provider_id,model_id,model_instance_id,model_config_key,successful_count,mean_elapsed_ms"
+            .to_string(),
+    ];
+    lines.extend(aggregates.iter().map(|aggregate| {
+        format!(
+            "{},{},{},{},{},{}",
+            csv_field(&aggregate.provider_id),
+            csv_field(&aggregate.model_id),
+            csv_field(&aggregate.model_instance_id),
+            csv_field(&aggregate.model_config_key),
+            aggregate.successful_count,
+            aggregate
+                .mean_elapsed_ms
+                .map(|value| format!("{value:.2}"))
+                .unwrap_or_else(|| "N/A".to_string()),
+        )
+    }));
+    fs::write(path, lines.join("\n"))
+        .with_context(|| format!("failed to write {}", display_path(path)))
+}
+
+fn short_instance_id(instance_id: &str) -> String {
+    instance_id.chars().take(8).collect()
 }
 
 fn csv_field(value: &str) -> String {
@@ -387,8 +560,8 @@ fn display_path(path: &Path) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExecutionRecord, RecordStatus, RunOutput, ScoreResult, ScoreStatus, build_score_aggregates,
-        render_terminal_table,
+        DurationAggregate, ExecutionRecord, RecordStatus, RunOutput, ScoreResult, ScoreStatus,
+        build_duration_aggregates, build_score_aggregates, render_terminal_report,
     };
 
     #[test]
@@ -399,11 +572,14 @@ mod tests {
                     id: "1".to_string(),
                     provider_id: "mock".to_string(),
                     model_id: "model-a".to_string(),
+                    model_instance_id: "instance-a".to_string(),
+                    model_config_key: "config-a".to_string(),
                     test_id: "test-1".to_string(),
                     repeat_index: 1,
                     api_style: "openai_chat_completions".to_string(),
                     status: RecordStatus::Success,
                     attempts: 1,
+                    elapsed_ms: 120,
                     output_text: Some("a".to_string()),
                     processed_output: Some("a".to_string()),
                     post_process_applied: false,
@@ -422,11 +598,14 @@ mod tests {
                     id: "2".to_string(),
                     provider_id: "mock".to_string(),
                     model_id: "model-a".to_string(),
+                    model_instance_id: "instance-a".to_string(),
+                    model_config_key: "config-a".to_string(),
                     test_id: "test-2".to_string(),
                     repeat_index: 1,
                     api_style: "openai_chat_completions".to_string(),
                     status: RecordStatus::Success,
                     attempts: 1,
+                    elapsed_ms: 180,
                     output_text: Some("b".to_string()),
                     processed_output: Some("b".to_string()),
                     post_process_applied: false,
@@ -453,18 +632,65 @@ mod tests {
 
     #[test]
     fn renders_terminal_table_for_aggregates() {
-        let table = render_terminal_table(&[super::ScoreAggregate {
-            provider_id: "mock".to_string(),
-            model_id: "model-a".to_string(),
-            score_name: "json".to_string(),
-            kind: "lua".to_string(),
-            count: 2,
-            mean: 90.0,
-            std_dev: 10.0,
-        }]);
+        let table = render_terminal_report(
+            &[DurationAggregate {
+                provider_id: "mock".to_string(),
+                model_id: "model-a".to_string(),
+                model_instance_id: "instance-a".to_string(),
+                model_config_key: "config-a".to_string(),
+                successful_count: 2,
+                mean_elapsed_ms: Some(150.0),
+            }],
+            &[super::ScoreAggregate {
+                provider_id: "mock".to_string(),
+                model_id: "model-a".to_string(),
+                model_instance_id: "instance-a".to_string(),
+                model_config_key: "config-a".to_string(),
+                score_name: "json".to_string(),
+                kind: "lua".to_string(),
+                count: 2,
+                mean: 90.0,
+                std_dev: 10.0,
+            }],
+        );
 
-        assert!(table.contains("provider_id"));
+        assert!(table.contains("Duration"));
+        assert!(table.contains("Scores"));
         assert!(table.contains("model-a"));
         assert!(table.contains("90.0000"));
+        assert!(table.contains("150.00"));
+    }
+
+    #[test]
+    fn duration_aggregate_reports_na_for_all_failed_model() {
+        let run_output = RunOutput {
+            records: vec![ExecutionRecord {
+                id: "1".to_string(),
+                provider_id: "mock".to_string(),
+                model_id: "model-a".to_string(),
+                model_instance_id: "instance-a".to_string(),
+                model_config_key: "config-a".to_string(),
+                test_id: "test-1".to_string(),
+                repeat_index: 1,
+                api_style: "openai_chat_completions".to_string(),
+                status: RecordStatus::Failed,
+                attempts: 1,
+                elapsed_ms: 0,
+                output_text: None,
+                processed_output: None,
+                post_process_applied: false,
+                post_process_retries: 0,
+                scores: vec![],
+                error: Some("boom".to_string()),
+            }],
+        };
+
+        let aggregates = build_duration_aggregates(&run_output);
+        assert_eq!(aggregates.len(), 1);
+        assert_eq!(aggregates[0].successful_count, 0);
+        assert_eq!(aggregates[0].mean_elapsed_ms, None);
+
+        let report = render_terminal_report(&aggregates, &[]);
+        assert!(report.contains("N/A"));
     }
 }

@@ -14,6 +14,7 @@ pub use openai_chat::RetryPolicy;
 pub struct ModelExecution {
     pub output_text: String,
     pub attempts: u8,
+    pub elapsed_ms: u64,
 }
 
 pub fn execute_model_request(
@@ -38,6 +39,7 @@ pub fn execute_model_request(
         .map(|execution| ModelExecution {
             output_text: execution.output_text,
             attempts: execution.attempts,
+            elapsed_ms: execution.elapsed_ms,
         }),
         ApiStyle::OpenaiResponses => openai_responses::execute_openai_responses_prompt(
             provider,
@@ -51,6 +53,7 @@ pub fn execute_model_request(
         .map(|execution| ModelExecution {
             output_text: execution.output_text,
             attempts: execution.attempts,
+            elapsed_ms: execution.elapsed_ms,
         }),
         ApiStyle::AnthropicMessages => anthropic_messages::execute_anthropic_messages_prompt(
             provider,
@@ -64,6 +67,7 @@ pub fn execute_model_request(
         .map(|execution| ModelExecution {
             output_text: execution.output_text,
             attempts: execution.attempts,
+            elapsed_ms: execution.elapsed_ms,
         }),
     }
 }

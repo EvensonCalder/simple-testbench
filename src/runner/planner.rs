@@ -17,6 +17,7 @@ pub struct DryRunPlan {
 pub struct PlannedModel {
     pub provider_id: String,
     pub model_id: String,
+    pub model_instance_id: String,
     pub api_style: String,
     pub endpoint: String,
     pub configured_concurrency: u32,
@@ -75,6 +76,7 @@ fn build_planned_model(
     Ok(PlannedModel {
         provider_id: resolved.provider.provider_id.clone(),
         model_id: resolved.model.model_id.clone(),
+        model_instance_id: resolved.model.short_instance_id(),
         api_style: resolved.model.api_style.as_str().to_string(),
         endpoint: endpoint.to_string(),
         configured_concurrency: resolved.provider.concurrency,

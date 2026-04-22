@@ -194,11 +194,14 @@ Current record shape:
   "id": "uuid",
   "provider_id": "openrouter",
   "model_id": "z-ai/glm-5.1",
+  "model_instance_id": "stable-instance-id",
+  "model_config_key": "{\"api_style\":\"openai_responses\",\"temperature\":null,\"max_output_tokens\":null,\"extra\":{}}",
   "test_id": "todo-001",
   "repeat_index": 1,
   "api_style": "openai_responses",
   "status": "success",
   "attempts": 1,
+  "elapsed_ms": 482,
   "output_text": "raw model output",
   "processed_output": "post-processed output",
   "post_process_applied": true,
@@ -224,5 +227,8 @@ Generated output files:
 - `results.json` when `--json` is set
 - `score_mean.csv`
 - `score_std.csv`
+- `duration_mean.csv`
 
-CSV outputs contain aggregate averages and standard deviations per provider-model instance and score item, rounded to four decimal places.
+`duration_mean.csv` contains average request duration per provider-model instance. Failed requests are ignored for timing, and model instances with no successful requests are reported as `N/A`.
+
+Score CSV outputs contain aggregate averages and standard deviations per provider-model instance and score item, rounded to four decimal places.

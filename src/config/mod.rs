@@ -7,8 +7,9 @@ use std::{
 };
 
 use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::archive;
 use crate::error::StbError;
@@ -18,7 +19,7 @@ const MODELS_FILE: &str = "models.json";
 const SYSTEM_PROMPTS_FILE: &str = "system_prompts.json";
 const TESTS_FILE: &str = "tests.json";
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiStyle {
     OpenaiChatCompletions,
@@ -82,6 +83,41 @@ pub struct ModelConfig {
     pub max_output_tokens: Option<u32>,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl ModelConfig {
+    pub fn config_key(&self) -> String {
+        #[derive(Serialize)]
+        struct ConfigKey<'a> {
+            api_style: &'a ApiStyle,
+            temperature: Option<f64>,
+            max_output_tokens: Option<u32>,
+            extra: &'a BTreeMap<String, Value>,
+        }
+
+        serde_json::to_string(&ConfigKey {
+            api_style: &self.api_style,
+            temperature: self.temperature,
+            max_output_tokens: self.max_output_tokens,
+            extra: &self.extra,
+        })
+        .expect("model config key serialization should succeed")
+    }
+
+    pub fn instance_id(&self) -> String {
+        let identity = format!(
+            "{}:{}:{}",
+            self.provider_id,
+            self.model_id,
+            self.config_key()
+        );
+
+        Uuid::new_v5(&Uuid::NAMESPACE_OID, identity.as_bytes()).to_string()
+    }
+
+    pub fn short_instance_id(&self) -> String {
+        self.instance_id().chars().take(8).collect()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -256,9 +292,13 @@ fn validate_loaded_config(loaded: &LoadedConfig) -> anyhow::Result<()> {
             .into());
         }
 
-        if !model_keys.insert((model.provider_id.clone(), model.model_id.clone())) {
+        if !model_keys.insert((
+            model.provider_id.clone(),
+            model.model_id.clone(),
+            model.config_key(),
+        )) {
             return Err(StbError::InvalidConfig(format!(
-                "duplicate model identity {}:{}",
+                "duplicate model identity {}:{} with identical config",
                 model.provider_id, model.model_id
             ))
             .into());
@@ -453,6 +493,46 @@ mod tests {
         let error =
             super::validate_loaded_config(&loaded).expect_err("duplicate model should fail");
         assert!(error.to_string().contains("duplicate model identity"));
+    }
+
+    #[test]
+    fn allows_same_provider_and_model_with_different_params() {
+        let mut alternate_model = base_model();
+        alternate_model.max_output_tokens = Some(1024);
+
+        let loaded = LoadedConfig {
+            input_dir: Path::new(".").to_path_buf(),
+            providers: vec![base_provider()],
+            models: vec![base_model(), alternate_model],
+            system_prompts: vec![],
+            tests: vec![],
+        };
+
+        super::validate_loaded_config(&loaded)
+            .expect("models with different params should be distinct instances");
+    }
+
+    #[test]
+    fn selects_multiple_instances_for_same_model_id() {
+        let mut alternate_model = base_model();
+        alternate_model.max_output_tokens = Some(1024);
+
+        let loaded = LoadedConfig {
+            input_dir: Path::new(".").to_path_buf(),
+            providers: vec![base_provider()],
+            models: vec![base_model(), alternate_model],
+            system_prompts: vec![],
+            tests: vec![],
+        };
+
+        let selected = resolve_selected_models(&loaded, Some("openrouter"), Some("z-ai/glm-5.1"))
+            .expect("selection should include both instances");
+
+        assert_eq!(selected.len(), 2);
+        assert_ne!(
+            selected[0].model.instance_id(),
+            selected[1].model.instance_id()
+        );
     }
 
     #[test]

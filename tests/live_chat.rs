@@ -679,19 +679,109 @@ fn executes_ai_scoring_and_writes_reports() {
     assert!(output_json.contains("\"kind\": \"ai\""));
     assert!(output_json.contains("\"score\": 87"));
     assert!(output_json.contains("pretty good"));
+    assert!(output_json.contains("\"elapsed_ms\":"));
+    assert!(output_json.contains("\"model_instance_id\":"));
 
     let results_json = fs::read_to_string(output_dir.join("results.json"))
         .expect("results.json should exist after execution");
     assert!(results_json.contains("\"score_name\": \"judge\""));
     assert!(results_json.contains("\"mean\": 87.0"));
+    assert!(results_json.contains("\"duration_aggregates\":"));
 
     let score_mean_csv = fs::read_to_string(output_dir.join("score_mean.csv"))
         .expect("score_mean.csv should exist after execution");
     let score_std_csv = fs::read_to_string(output_dir.join("score_std.csv"))
         .expect("score_std.csv should exist after execution");
+    let duration_mean_csv = fs::read_to_string(output_dir.join("duration_mean.csv"))
+        .expect("duration_mean.csv should exist after execution");
     assert!(score_mean_csv.contains("judge"));
     assert!(score_mean_csv.contains("87.0000"));
     assert!(score_std_csv.contains("0.0000"));
+    assert!(duration_mean_csv.contains("mean_elapsed_ms"));
+}
+
+#[test]
+fn treats_same_model_id_with_different_params_as_distinct_instances() {
+    let server = MockServer::start();
+    let temp = tempdir().expect("temp dir should exist");
+    let input_dir = temp.path().join("input");
+    let output_dir = temp.path().join("out");
+    fs::create_dir(&input_dir).expect("input dir should be created");
+
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/chat/completions");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body(r#"{"choices":[{"message":{"content":"ok"}}]}"#);
+    });
+
+    fs::write(
+        input_dir.join("providers.json"),
+        format!(
+            r#"{{
+  "providers": [
+    {{
+      "provider_id": "mock",
+      "key": "test-key",
+      "env_key": null,
+      "concurrency": 1,
+      "rpm": 10,
+      "endpoints": {{
+        "openai_chat_completions": "{}"
+      }}
+    }}
+  ]
+}}"#,
+            server.base_url()
+        ),
+    )
+    .expect("providers should be written");
+
+    fs::write(
+        input_dir.join("models.json"),
+        r#"{
+  "models": [
+    {
+      "provider_id": "mock",
+      "model_id": "chat-model",
+      "api_style": "openai_chat_completions",
+      "max_output_tokens": 32
+    },
+    {
+      "provider_id": "mock",
+      "model_id": "chat-model",
+      "api_style": "openai_chat_completions",
+      "max_output_tokens": 64
+    }
+  ]
+}"#,
+    )
+    .expect("models should be written");
+
+    write_basic_suite(&input_dir, "Return text only.", "Hello");
+
+    Command::cargo_bin("stb")
+        .expect("binary should build")
+        .args(["test", "-i"])
+        .arg(&input_dir)
+        .args([
+            "--provider",
+            "mock",
+            "--model",
+            "chat-model",
+            "--output-dir",
+        ])
+        .arg(&output_dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("completed requests: 2"));
+
+    assert_eq!(mock.hits(), 2);
+
+    let output_json = fs::read_to_string(output_dir.join("output.json"))
+        .expect("output.json should exist after execution");
+    assert!(output_json.matches("\"model_id\": \"chat-model\"").count() >= 2);
+    assert!(output_json.matches("\"model_instance_id\":").count() >= 2);
 }
 
 #[test]

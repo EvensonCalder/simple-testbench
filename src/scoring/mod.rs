@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, fs, path::Path};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use mlua::{Function, Lua, Table};
 use serde::Deserialize;
 use serde_json::Value;
@@ -448,8 +448,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        apply_post_process, load_scoring_config, parse_ai_score_response, score_processed_output,
-        LoadedScorerKind,
+        LoadedScorerKind, apply_post_process, load_scoring_config, parse_ai_score_response,
+        score_processed_output,
     };
     use crate::config::{
         LoadedConfig, ProviderConfig, ProviderEndpoints, SystemPrompt, TestCase, TestInput,

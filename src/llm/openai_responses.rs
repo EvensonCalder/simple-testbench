@@ -1,4 +1,7 @@
-use std::{thread, time::Duration};
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, anyhow};
 use reqwest::blocking::Client;
@@ -12,6 +15,7 @@ use super::RetryPolicy;
 pub struct ResponsesExecution {
     pub output_text: String,
     pub attempts: u8,
+    pub elapsed_ms: u64,
 }
 
 pub fn execute_openai_responses_prompt(
@@ -46,6 +50,7 @@ pub fn execute_openai_responses_prompt(
     let client = Client::builder()
         .build()
         .context("failed to build HTTP client")?;
+    let mut elapsed_ms = 0u64;
 
     for attempt_index in 0..=retry_policy.max_retries() {
         let attempt_number = attempt_index + 1;
@@ -57,14 +62,18 @@ pub fn execute_openai_responses_prompt(
             );
         }
 
+        let started = Instant::now();
         match send_request(&client, &url, &api_key, &request_body) {
             Ok(output_text) => {
+                elapsed_ms += started.elapsed().as_millis() as u64;
                 return Ok(ResponsesExecution {
                     output_text,
                     attempts: attempt_number,
+                    elapsed_ms,
                 });
             }
             Err(error) if attempt_index < retry_policy.max_retries() => {
+                elapsed_ms += started.elapsed().as_millis() as u64;
                 if verbose {
                     println!(
                         "request failed for {}/{} {} attempt={} error={error}",

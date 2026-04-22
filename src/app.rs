@@ -51,18 +51,27 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
         "score std csv: {}",
         display_path(&summary.reports.score_std_csv)
     );
+    println!(
+        "duration mean csv: {}",
+        display_path(&summary.reports.duration_mean_csv)
+    );
 
     if let Some(path) = &summary.reports.results_json {
         println!("results json: {}", display_path(path));
     }
 
     match args.format.unwrap_or(crate::cli::DisplayFormat::Table) {
-        crate::cli::DisplayFormat::Table => println!("{}", summary.reports.terminal_table),
-        crate::cli::DisplayFormat::Json => println!(
-            "{}",
-            to_string_pretty(&summary.reports.aggregates)
-                .context("failed to render JSON report summary")?
-        ),
+        crate::cli::DisplayFormat::Table => println!("{}", summary.reports.terminal_report),
+        crate::cli::DisplayFormat::Json => {
+            let payload = serde_json::json!({
+                "score_aggregates": summary.reports.score_aggregates,
+                "duration_aggregates": summary.reports.duration_aggregates,
+            });
+            println!(
+                "{}",
+                to_string_pretty(&payload).context("failed to render JSON report summary")?
+            );
+        }
     }
 
     Ok(())
@@ -154,10 +163,11 @@ fn print_test_dry_run(args: &TestArgs, loaded: &config::LoadedConfig, plan: &pla
 
     for model in &plan.selected_models {
         println!(
-            "- {}/{} [{}] endpoint={} provider_concurrency={} effective_concurrency={} rpm={} planned_requests={}",
+            "- {}/{} [{}] instance={} endpoint={} provider_concurrency={} effective_concurrency={} rpm={} planned_requests={}",
             model.provider_id,
             model.model_id,
             model.api_style,
+            model.model_instance_id,
             model.endpoint,
             model.configured_concurrency,
             model.effective_concurrency,
