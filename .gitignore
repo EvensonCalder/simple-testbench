@@ -1,5 +1,30 @@
+# Rust build artifacts
 /target
-.DS_Store
-stb_out_*
+**/target
+
+# STB runtime outputs
+stb_out_*/
 *.stbt
 *.stbs
+
+# Local secrets and scratch
+.env
+.env.*
+!.env.example
+.tmp_*/
+tmp/
+scratch/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
