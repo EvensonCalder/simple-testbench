@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, fs, path::Path};
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use mlua::{Function, Lua, Table};
 use serde::Deserialize;
 use serde_json::Value;
@@ -292,7 +292,8 @@ fn build_ai_judge_prompt(benchmark_input: &str, processed_output: &str) -> Strin
 }
 
 fn parse_ai_score_response(response_text: &str) -> anyhow::Result<(u8, Option<String>)> {
-    let payload = serde_json::from_str::<Value>(response_text)
+    let normalized = strip_json_code_fence(response_text);
+    let payload = serde_json::from_str::<Value>(&normalized)
         .context("AI scorer response was not valid JSON")?;
     let score_value = payload
         .get("score")
@@ -321,6 +322,30 @@ fn parse_ai_score_response(response_text: &str) -> anyhow::Result<(u8, Option<St
         .map(ToOwned::to_owned);
 
     Ok((score as u8, reason))
+}
+
+fn strip_json_code_fence(text: &str) -> String {
+    let trimmed = text.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
+    }
+
+    let mut lines = trimmed.lines();
+    let Some(first_line) = lines.next() else {
+        return trimmed.to_string();
+    };
+
+    if !first_line.starts_with("```") {
+        return trimmed.to_string();
+    }
+
+    let body = lines.collect::<Vec<_>>().join("\n");
+    let body = body.trim_end();
+    let Some(stripped) = body.strip_suffix("```") else {
+        return trimmed.to_string();
+    };
+
+    stripped.trim().to_string()
 }
 
 fn build_scoring_config<F>(
@@ -423,8 +448,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        LoadedScorerKind, apply_post_process, load_scoring_config, parse_ai_score_response,
-        score_processed_output,
+        apply_post_process, load_scoring_config, parse_ai_score_response, score_processed_output,
+        LoadedScorerKind,
     };
     use crate::config::{
         LoadedConfig, ProviderConfig, ProviderEndpoints, SystemPrompt, TestCase, TestInput,
@@ -584,5 +609,16 @@ end"#,
 
         assert_eq!(score, 91);
         assert_eq!(reason.as_deref(), Some("good"));
+    }
+
+    #[test]
+    fn parses_ai_score_output_inside_code_fence() {
+        let (score, reason) = parse_ai_score_response(
+            "```json\n{\n  \"score\": 88,\n  \"reason\": \"solid\"\n}\n```",
+        )
+        .expect("fenced ai score should parse");
+
+        assert_eq!(score, 88);
+        assert_eq!(reason.as_deref(), Some("solid"));
     }
 }

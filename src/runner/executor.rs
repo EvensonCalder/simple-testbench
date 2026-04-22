@@ -4,7 +4,7 @@ use anyhow::anyhow;
 
 use crate::{
     cli::TestArgs,
-    config::{LoadedConfig, SystemPrompt, resolve_selected_models},
+    config::{resolve_selected_models, LoadedConfig, SystemPrompt},
     error::StbError,
     llm::{self, RetryPolicy},
     output::{self, ExecutionRecord, RecordStatus, ReportArtifacts, RunOutput},
@@ -159,7 +159,17 @@ pub fn run_test_session(
                         completed_requests += 1;
                     }
                     Err(error) => {
-                        let rendered = error.to_string();
+                        let rendered = format!("{error:#}");
+
+                        if args.verbose {
+                            println!(
+                                "request failed for {}/{} test={} error={rendered}",
+                                resolved.provider.provider_id,
+                                resolved.model.model_id,
+                                test_case.id
+                            );
+                        }
+
                         let record = ExecutionRecord {
                             id: output::next_record_id(),
                             provider_id: resolved.provider.provider_id.clone(),
