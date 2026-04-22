@@ -17,17 +17,13 @@ Implemented today:
 - real dry-run planning with provider and model filters
 - `.stbt` packaging and archive-backed test loading
 - `.stbs` packaging for scoring assets
-- first live execution path for `openai_chat_completions`
-- `output.json` persistence and resume for executed requests
+- live execution for `openai_chat_completions`, `openai_responses`, and `anthropic_messages`
+- `output.json` persistence and resume for executed requests and scores
+- Lua post-processing with retry contract support
+- Lua custom scoring and AI judge scoring
+- `results.json`, `score_mean.csv`, and `score_std.csv` report generation
+- simple terminal table and JSON aggregate display
 - initial `example/` fixtures that define the target file formats
-
-Planned next:
-
-- Lua post-processing and scoring
-- AI scoring
-- OpenAI Responses support
-- Anthropic Messages support
-- final reporting outputs
 
 ## Design Goals
 
@@ -48,7 +44,7 @@ stb --help
 stb --version
 ```
 
-Current note: live execution currently supports `openai_chat_completions` only. `openai_responses`, `anthropic_messages`, scoring, resume, and final result reporting are still in progress.
+Current note: STB now executes all three target request styles, strips reasoning or thinking from normalized output, runs Lua and AI scorers during benchmark execution, persists intermediate state in `output.json`, and writes aggregate CSV and JSON reports at the end of a run.
 
 ## Build
 

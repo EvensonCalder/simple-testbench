@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Context;
+use serde_json::to_string_pretty;
 
 use crate::{
     cli::{Cli, Command, PackageArgs, TestArgs},
@@ -42,6 +43,27 @@ fn run_test(args: TestArgs) -> anyhow::Result<()> {
     println!("failed requests: {}", summary.failed_requests);
     println!("skipped requests: {}", summary.skipped_requests);
     println!("resumed requests: {}", summary.resumed_requests);
+    println!(
+        "score mean csv: {}",
+        display_path(&summary.reports.score_mean_csv)
+    );
+    println!(
+        "score std csv: {}",
+        display_path(&summary.reports.score_std_csv)
+    );
+
+    if let Some(path) = &summary.reports.results_json {
+        println!("results json: {}", display_path(path));
+    }
+
+    match args.format.unwrap_or(crate::cli::DisplayFormat::Table) {
+        crate::cli::DisplayFormat::Table => println!("{}", summary.reports.terminal_table),
+        crate::cli::DisplayFormat::Json => println!(
+            "{}",
+            to_string_pretty(&summary.reports.aggregates)
+                .context("failed to render JSON report summary")?
+        ),
+    }
 
     Ok(())
 }

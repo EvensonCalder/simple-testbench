@@ -1,6 +1,7 @@
 //! Archive packaging and unpacking for .stbt and .stbs bundles.
 
 use std::{
+    collections::BTreeMap,
     collections::BTreeSet,
     fs::File,
     io::{Read, Write},
@@ -28,6 +29,13 @@ pub struct PackagedBundle {
 pub struct LoadedTestBundle {
     pub system_prompts_json: String,
     pub tests_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedScoringBundle {
+    pub scoring_json: String,
+    pub post_process_lua: Option<String>,
+    pub files: BTreeMap<String, String>,
 }
 
 pub fn package_test_bundle(input_dir: &Path, output: &Path) -> anyhow::Result<PackagedBundle> {
@@ -88,6 +96,45 @@ pub fn load_test_bundle(path: &Path) -> anyhow::Result<LoadedTestBundle> {
     Ok(LoadedTestBundle {
         system_prompts_json: read_entry_to_string(&mut archive, SYSTEM_PROMPTS_FILE)?,
         tests_json: read_entry_to_string(&mut archive, TESTS_FILE)?,
+    })
+}
+
+pub fn load_scoring_bundle(path: &Path) -> anyhow::Result<LoadedScoringBundle> {
+    let file =
+        File::open(path).with_context(|| format!("failed to open {}", display_path(path)))?;
+    let mut archive = ZipArchive::new(file)
+        .with_context(|| format!("failed to read zip archive {}", display_path(path)))?;
+    let mut files = BTreeMap::new();
+
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).with_context(|| {
+            format!(
+                "failed to read zip entry {index} from {}",
+                display_path(path)
+            )
+        })?;
+
+        if !entry.is_file() {
+            continue;
+        }
+
+        let name = entry.name().to_string();
+        let mut content = String::new();
+        entry
+            .read_to_string(&mut content)
+            .with_context(|| format!("failed to read {name} from archive"))?;
+        files.insert(name, content);
+    }
+
+    let scoring_json = files
+        .remove(SCORING_FILE)
+        .ok_or_else(|| anyhow::anyhow!("missing {} in archive", SCORING_FILE))?;
+    let post_process_lua = files.remove(POST_PROCESS_FILE);
+
+    Ok(LoadedScoringBundle {
+        scoring_json,
+        post_process_lua,
+        files,
     })
 }
 
@@ -168,7 +215,9 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{load_test_bundle, package_scoring_bundle, package_test_bundle};
+    use super::{
+        load_scoring_bundle, load_test_bundle, package_scoring_bundle, package_test_bundle,
+    };
 
     #[test]
     fn packages_and_loads_test_bundle() {
@@ -195,6 +244,11 @@ mod tests {
         assert!(summary.files.contains(&"post_process.lua".to_string()));
         assert!(summary.files.contains(&"score_json.lua".to_string()));
         assert!(summary.files.contains(&"score_extract_ai.json".to_string()));
-        assert!(fs::metadata(output).is_ok());
+        assert!(fs::metadata(&output).is_ok());
+
+        let loaded = load_scoring_bundle(&output).expect("scoring bundle should load");
+        assert!(loaded.scoring_json.contains("extraction_quality"));
+        assert!(loaded.post_process_lua.is_some());
+        assert!(loaded.files.contains_key("score_json.lua"));
     }
 }

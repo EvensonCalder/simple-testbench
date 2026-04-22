@@ -4,7 +4,9 @@ use anyhow::{Context, anyhow};
 use reqwest::blocking::Client;
 use serde_json::{Map, Value, json};
 
-use crate::config::{ApiStyle, ModelConfig, ProviderConfig, SystemPrompt, TestCase, TestInput};
+use crate::config::{ApiStyle, ModelConfig, ProviderConfig, SystemPrompt, TestCase};
+
+use super::build_test_user_prompt;
 
 #[derive(Debug, Clone)]
 pub struct RetryPolicy {
@@ -41,7 +43,7 @@ impl RetryPolicy {
         self.max_retries
     }
 
-    fn retry_delay(&self, retry_index: usize) -> Duration {
+    pub(crate) fn retry_delay(&self, retry_index: usize) -> Duration {
         self.retry_delays
             .get(retry_index)
             .copied()
@@ -63,6 +65,27 @@ pub fn execute_openai_chat_completion(
     retry_policy: &RetryPolicy,
     verbose: bool,
 ) -> anyhow::Result<ChatExecution> {
+    let user_prompt = build_test_user_prompt(test_case)?;
+    execute_openai_chat_completion_prompt(
+        provider,
+        model,
+        &system_prompt.text,
+        &user_prompt,
+        retry_policy,
+        verbose,
+        &format!("test={}", test_case.id),
+    )
+}
+
+pub fn execute_openai_chat_completion_prompt(
+    provider: &ProviderConfig,
+    model: &ModelConfig,
+    system_prompt_text: &str,
+    user_prompt: &str,
+    retry_policy: &RetryPolicy,
+    verbose: bool,
+    request_label: &str,
+) -> anyhow::Result<ChatExecution> {
     if model.api_style != ApiStyle::OpenaiChatCompletions {
         return Err(anyhow!(
             "model {} is configured as {}, not openai_chat_completions",
@@ -82,7 +105,7 @@ pub fn execute_openai_chat_completion(
         })?;
     let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
     let api_key = resolve_api_key(provider)?;
-    let request_body = build_chat_request(model, system_prompt, test_case)?;
+    let request_body = build_chat_request(model, system_prompt_text, user_prompt);
     let client = Client::builder()
         .build()
         .context("failed to build HTTP client")?;
@@ -92,8 +115,8 @@ pub fn execute_openai_chat_completion(
 
         if verbose {
             println!(
-                "requesting {}/{} test={} attempt={}",
-                provider.provider_id, model.model_id, test_case.id, attempt_number
+                "requesting {}/{} {} attempt={}",
+                provider.provider_id, model.model_id, request_label, attempt_number
             );
         }
 
@@ -107,8 +130,8 @@ pub fn execute_openai_chat_completion(
             Err(error) if attempt_index < retry_policy.max_retries() => {
                 if verbose {
                     println!(
-                        "request failed for {}/{} test={} attempt={} error={error}",
-                        provider.provider_id, model.model_id, test_case.id, attempt_number
+                        "request failed for {}/{} {} attempt={} error={error}",
+                        provider.provider_id, model.model_id, request_label, attempt_number
                     );
                 }
 
@@ -116,8 +139,8 @@ pub fn execute_openai_chat_completion(
             }
             Err(error) => {
                 return Err(error.context(format!(
-                    "chat completion failed for {}/{} test={} after {} attempts",
-                    provider.provider_id, model.model_id, test_case.id, attempt_number
+                    "chat completion failed for {}/{} {} after {} attempts",
+                    provider.provider_id, model.model_id, request_label, attempt_number
                 )));
             }
         }
@@ -168,11 +191,7 @@ fn extract_output_text(response_text: &str) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow!("response did not contain choices[0].message.content"))
 }
 
-fn build_chat_request(
-    model: &ModelConfig,
-    system_prompt: &SystemPrompt,
-    test_case: &TestCase,
-) -> anyhow::Result<Value> {
+fn build_chat_request(model: &ModelConfig, system_prompt_text: &str, user_prompt: &str) -> Value {
     let mut body = Map::new();
     body.insert("model".to_string(), Value::String(model.model_id.clone()));
     body.insert(
@@ -180,11 +199,11 @@ fn build_chat_request(
         json!([
             {
                 "role": "system",
-                "content": system_prompt.text,
+                "content": system_prompt_text,
             },
             {
                 "role": "user",
-                "content": build_user_prompt(test_case)?,
+                "content": user_prompt,
             }
         ]),
     );
@@ -201,26 +220,7 @@ fn build_chat_request(
         body.insert(key.clone(), value.clone());
     }
 
-    Ok(Value::Object(body))
-}
-
-fn build_user_prompt(test_case: &TestCase) -> anyhow::Result<String> {
-    let parts = test_case
-        .input
-        .iter()
-        .map(|item| match item {
-            TestInput::Text { text } => text.as_str(),
-        })
-        .collect::<Vec<_>>();
-
-    if parts.is_empty() {
-        return Err(anyhow!(
-            "test {} does not contain any input text",
-            test_case.id
-        ));
-    }
-
-    Ok(parts.join("\n\n"))
+    Value::Object(body)
 }
 
 fn resolve_api_key(provider: &ProviderConfig) -> anyhow::Result<String> {
@@ -245,9 +245,7 @@ mod tests {
 
     use serde_json::json;
 
-    use crate::config::{
-        ApiStyle, ModelConfig, ProviderConfig, ProviderEndpoints, SystemPrompt, TestCase, TestInput,
-    };
+    use crate::config::{ApiStyle, ModelConfig, ProviderConfig, ProviderEndpoints};
 
     use super::{RetryPolicy, build_chat_request, extract_output_text};
 
@@ -262,28 +260,9 @@ mod tests {
         }
     }
 
-    fn test_case() -> TestCase {
-        TestCase {
-            id: "test-1".to_string(),
-            system_prompt: "prompt-1".to_string(),
-            input: vec![TestInput::Text {
-                text: "buy milk at the store".to_string(),
-            }],
-            repeat: 1,
-        }
-    }
-
     #[test]
     fn builds_expected_chat_request() {
-        let request = build_chat_request(
-            &model(),
-            &SystemPrompt {
-                id: "prompt-1".to_string(),
-                text: "Return JSON".to_string(),
-            },
-            &test_case(),
-        )
-        .expect("request should build");
+        let request = build_chat_request(&model(), "Return JSON", "buy milk at the store");
 
         assert_eq!(request["model"], json!("chat-model"));
         assert_eq!(request["temperature"], json!(0.0));

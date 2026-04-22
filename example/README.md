@@ -20,4 +20,4 @@ The directory includes:
 - one Lua scoring script for JSON validity
 - one AI scoring definition for extraction quality
 
-The files are design targets for the upcoming implementation phases.
+The files are runnable inputs for the implemented STB benchmark pipeline.

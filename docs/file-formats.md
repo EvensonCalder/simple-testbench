@@ -180,19 +180,49 @@ Rules:
 
 Required runtime state file.
 
-Planned responsibilities:
+Current responsibilities:
 
-- store each request and each score result
+- store each benchmark request record
+- persist post-processed output and score results beside the raw output
 - assign a stable random id to every request-response record
 - allow interrupted runs to resume safely
-- preserve enough metadata to match scores to outputs
+
+Current record shape:
+
+```json
+{
+  "id": "uuid",
+  "provider_id": "openrouter",
+  "model_id": "z-ai/glm-5.1",
+  "test_id": "todo-001",
+  "repeat_index": 1,
+  "api_style": "openai_responses",
+  "status": "success",
+  "attempts": 1,
+  "output_text": "raw model output",
+  "processed_output": "post-processed output",
+  "post_process_applied": true,
+  "post_process_retries": 0,
+  "scores": [
+    {
+      "name": "json",
+      "kind": "lua",
+      "status": "success",
+      "score": 100,
+      "details": null,
+      "error": null
+    }
+  ],
+  "error": null
+}
+```
 
 ## Output reports
 
-Planned output files:
+Generated output files:
 
-- `results.json`
+- `results.json` when `--json` is set
 - `score_mean.csv`
 - `score_std.csv`
 
-CSV outputs will contain only aggregate averages and standard deviations per model and score item, rounded to four decimal places.
+CSV outputs contain aggregate averages and standard deviations per provider-model instance and score item, rounded to four decimal places.
