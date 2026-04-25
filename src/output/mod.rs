@@ -3,6 +3,7 @@
 use std::{
     collections::BTreeMap,
     fs,
+    io::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -21,6 +22,12 @@ impl RunOutput {
         Self {
             records: Vec::new(),
         }
+    }
+}
+
+impl Default for RunOutput {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -191,7 +198,50 @@ pub fn load_run_output(path: &Path) -> anyhow::Result<RunOutput> {
 pub fn write_run_output(path: &Path, run_output: &RunOutput) -> anyhow::Result<()> {
     let content =
         serde_json::to_string_pretty(run_output).context("failed to serialize output.json")?;
-    fs::write(path, content).with_context(|| format!("failed to write {}", display_path(path)))
+    atomic_write(path, content.as_bytes())
+        .with_context(|| format!("failed to write {}", display_path(path)))
+}
+
+fn atomic_write(path: &Path, content: &[u8]) -> anyhow::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("output.json");
+    let temp_path = parent.join(format!(".{file_name}.{}.tmp", Uuid::new_v4()));
+
+    let write_result = (|| -> anyhow::Result<()> {
+        let mut file = fs::File::create(&temp_path)
+            .with_context(|| format!("failed to create {}", display_path(&temp_path)))?;
+        file.write_all(content)
+            .with_context(|| format!("failed to write {}", display_path(&temp_path)))?;
+        file.sync_all()
+            .with_context(|| format!("failed to sync {}", display_path(&temp_path)))?;
+        drop(file);
+
+        fs::rename(&temp_path, path).with_context(|| {
+            format!(
+                "failed to replace {} with {}",
+                display_path(path),
+                display_path(&temp_path)
+            )
+        })?;
+        sync_directory(parent);
+
+        Ok(())
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    write_result
+}
+
+fn sync_directory(path: &Path) {
+    if let Ok(directory) = fs::File::open(path) {
+        let _ = directory.sync_all();
+    }
 }
 
 pub fn next_record_id() -> String {

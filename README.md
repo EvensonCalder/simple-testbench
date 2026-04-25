@@ -101,10 +101,11 @@ stb test [OPTIONS]
 
 Failure behavior:
 
-- Requests are executed concurrently per provider. Each provider runs up to its configured `concurrency`, capped by `--concurrency` when supplied.
+- Requests are executed concurrently per provider. Each provider runs up to its configured `concurrency`; `--concurrency` caps total in-flight benchmark requests across all providers.
 - Provider `rpm` is enforced as a per-provider request start rate, so concurrent workers do not exceed the configured requests-per-minute ceiling.
 - Each request uses the retry schedule `3s, 10s, 30s` (truncated to `--retry`).
 - If all attempts fail for one test, that model instance is **disabled for not-yet-started requests** in the rest of the run. Remaining tests for it are recorded as `skipped_model_disabled`; already in-flight requests may still finish.
+- `output.json` is written through an atomic same-directory temporary file and rename, so an interrupted write should leave the previous complete file intact.
 - Failed requests do not contribute to the timing average.
 
 ### `stb mkt`

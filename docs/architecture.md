@@ -118,9 +118,11 @@ If all retries fail, STB disables that provider-model instance for the remainder
 
 ### Execution concurrency
 
-The executor groups pending benchmark requests by provider. Each provider owns a worker pool sized by `provider.concurrency`, capped by `--concurrency` when supplied. Workers share a provider-level RPM limiter before starting requests.
+The executor groups pending benchmark requests by provider. Each provider owns a worker pool sized by `provider.concurrency`; `--concurrency` caps total in-flight benchmark requests across all providers. Workers share a provider-level RPM limiter before starting requests.
 
 When a model instance fails after all retries, workers skip not-yet-started requests for that same model instance. Requests that already started before the failure may still complete.
+
+`output.json` is persisted by writing a same-directory temporary file, syncing it, and atomically renaming it into place. If a run is interrupted, completed records already renamed into `output.json` resume; in-flight requests that had not been persisted are retried on the next run.
 
 ### Post-process retry policy
 

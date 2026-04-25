@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Condvar, Mutex, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -55,6 +55,58 @@ impl<'a> ProviderPending<'a> {
             concurrency,
             requests: VecDeque::new(),
         }
+    }
+}
+
+#[derive(Debug)]
+struct GlobalConcurrencyLimiter {
+    max_in_flight: usize,
+    in_flight: Mutex<usize>,
+    available: Condvar,
+}
+
+impl GlobalConcurrencyLimiter {
+    fn new(max_in_flight: usize) -> Self {
+        Self {
+            max_in_flight,
+            in_flight: Mutex::new(0),
+            available: Condvar::new(),
+        }
+    }
+
+    fn acquire(self: &Arc<Self>) -> GlobalConcurrencyPermit {
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .expect("global concurrency mutex should not be poisoned");
+        while *in_flight >= self.max_in_flight {
+            in_flight = self
+                .available
+                .wait(in_flight)
+                .expect("global concurrency mutex should not be poisoned");
+        }
+
+        *in_flight += 1;
+        GlobalConcurrencyPermit {
+            limiter: Arc::clone(self),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct GlobalConcurrencyPermit {
+    limiter: Arc<GlobalConcurrencyLimiter>,
+}
+
+impl Drop for GlobalConcurrencyPermit {
+    fn drop(&mut self) {
+        let mut in_flight = self
+            .limiter
+            .in_flight
+            .lock()
+            .expect("global concurrency mutex should not be poisoned");
+        *in_flight = in_flight.saturating_sub(1);
+        self.limiter.available.notify_one();
     }
 }
 
@@ -302,6 +354,9 @@ fn run_pending_requests<'a>(
     }
 
     let disabled_state = Arc::new(Mutex::new(disabled_models.clone()));
+    let global_limiter = args
+        .concurrency
+        .map(|concurrency| Arc::new(GlobalConcurrencyLimiter::new(concurrency)));
     let (tx, rx) = mpsc::channel::<WorkerMessage<'a>>();
 
     let mut summary = PendingSummary {
@@ -320,6 +375,7 @@ fn run_pending_requests<'a>(
                 let limiter = Arc::clone(&limiter);
                 let tx = tx.clone();
                 let disabled_state = Arc::clone(&disabled_state);
+                let global_limiter = global_limiter.clone();
 
                 scope.spawn(move || {
                     loop {
@@ -341,6 +397,8 @@ fn run_pending_requests<'a>(
                         }
 
                         limiter.wait_turn();
+                        let _global_permit =
+                            global_limiter.as_ref().map(|limiter| limiter.acquire());
                         let request_started = Instant::now();
                         let outcome = match execute_request_with_scoring(
                             loaded,
@@ -532,6 +590,7 @@ struct CompletedExecution {
     scores: Vec<crate::output::ScoreResult>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_request_with_scoring(
     loaded: &LoadedConfig,
     provider: &crate::config::ProviderConfig,

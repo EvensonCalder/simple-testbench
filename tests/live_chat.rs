@@ -273,6 +273,106 @@ data: [DONE]
 }
 
 #[test]
+fn honors_global_concurrency_cap_across_providers() {
+    let server = MockServer::start();
+    let temp = tempdir().expect("temp dir should exist");
+    let input_dir = temp.path().join("input");
+    let output_dir = temp.path().join("out");
+    fs::create_dir(&input_dir).expect("input dir should be created");
+
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/chat/completions");
+        then.status(200)
+            .delay(Duration::from_millis(300))
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"choices":[{"delta":{"content":"ok"}}]}
+
+data: [DONE]
+
+"#,
+            );
+    });
+
+    fs::write(
+        input_dir.join("providers.json"),
+        format!(
+            r#"{{
+  "providers": [
+    {{
+      "provider_id": "mock-a",
+      "key": "test-key",
+      "env_key": null,
+      "concurrency": 4,
+      "rpm": 600,
+      "endpoints": {{"openai_chat_completions": "{}"}}
+    }},
+    {{
+      "provider_id": "mock-b",
+      "key": "test-key",
+      "env_key": null,
+      "concurrency": 4,
+      "rpm": 600,
+      "endpoints": {{"openai_chat_completions": "{}"}}
+    }}
+  ]
+}}"#,
+            server.base_url(),
+            server.base_url()
+        ),
+    )
+    .expect("providers should be written");
+
+    fs::write(
+        input_dir.join("models.json"),
+        r#"{
+  "models": [
+    {"provider_id": "mock-a", "model_id": "chat-model-a", "api_style": "openai_chat_completions"},
+    {"provider_id": "mock-b", "model_id": "chat-model-b", "api_style": "openai_chat_completions"}
+  ]
+}"#,
+    )
+    .expect("models should be written");
+
+    fs::write(
+        input_dir.join("system_prompts.json"),
+        r#"{
+  "system_prompts": [{"id": "prompt", "text": "Return text only."}]
+}"#,
+    )
+    .expect("system prompts should be written");
+
+    fs::write(
+        input_dir.join("tests.json"),
+        r#"{
+  "tests": [
+    {"id": "test-1", "system_prompt": "prompt", "input": [{"type": "text", "text": "one"}], "repeat": 1},
+    {"id": "test-2", "system_prompt": "prompt", "input": [{"type": "text", "text": "two"}], "repeat": 1}
+  ]
+}"#,
+    )
+    .expect("tests should be written");
+
+    let started = Instant::now();
+    Command::cargo_bin("stb")
+        .expect("binary should build")
+        .args(["test", "-i"])
+        .arg(&input_dir)
+        .args(["--concurrency", "1", "--output-dir"])
+        .arg(&output_dir)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("completed requests: 4"));
+
+    assert_eq!(mock.hits(), 4);
+    assert!(
+        started.elapsed() >= Duration::from_millis(1_000),
+        "expected global concurrency cap to serialize requests, elapsed {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn resumes_from_existing_output_without_repeating_requests() {
     let server = MockServer::start();
     let temp = tempdir().expect("temp dir should exist");
