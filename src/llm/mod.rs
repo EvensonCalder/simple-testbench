@@ -7,6 +7,7 @@ use crate::config::{ApiStyle, ModelConfig, ProviderConfig, TestCase, TestInput};
 pub mod anthropic_messages;
 pub mod openai_chat;
 pub mod openai_responses;
+mod streaming;
 
 pub use openai_chat::RetryPolicy;
 

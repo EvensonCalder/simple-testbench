@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde_json::{Map, Value, json};
 
 use crate::config::{ApiStyle, ModelConfig, ProviderConfig};
@@ -50,6 +50,7 @@ pub fn execute_anthropic_messages_prompt(
     let client = Client::builder()
         .build()
         .context("failed to build HTTP client")?;
+    let idle_timeout = Duration::from_secs(model.timeout);
     let mut elapsed_ms = 0u64;
 
     for attempt_index in 0..=retry_policy.max_retries() {
@@ -63,7 +64,14 @@ pub fn execute_anthropic_messages_prompt(
         }
 
         let started = Instant::now();
-        match send_request(&client, &url, &api_key, &request_body) {
+        match super::streaming::block_on_http(send_request(
+            &client,
+            &url,
+            &api_key,
+            &request_body,
+            model.streaming,
+            idle_timeout,
+        )) {
             Ok(output_text) => {
                 elapsed_ms += started.elapsed().as_millis() as u64;
                 return Ok(MessagesExecution {
@@ -95,25 +103,45 @@ pub fn execute_anthropic_messages_prompt(
     unreachable!("retry loop should always return")
 }
 
-fn send_request(
+async fn send_request(
     client: &Client,
     url: &str,
     api_key: &str,
     request_body: &Value,
+    streaming: bool,
+    idle_timeout: Duration,
 ) -> anyhow::Result<String> {
-    let response = client
-        .post(url)
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .bearer_auth(api_key)
-        .json(request_body)
-        .send()
-        .with_context(|| format!("failed to send request to {url}"))?;
+    let response = tokio::time::timeout(
+        idle_timeout,
+        client
+            .post(url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .bearer_auth(api_key)
+            .json(request_body)
+            .send(),
+    )
+    .await
+    .map_err(|_| {
+        anyhow!(
+            "request to {url} timed out after {} seconds",
+            idle_timeout.as_secs()
+        )
+    })?
+    .with_context(|| format!("failed to send request to {url}"))?;
 
     let status = response.status();
-    let response_text = response.text().context("failed to read response body")?;
 
     if !status.is_success() {
+        let response_text = tokio::time::timeout(idle_timeout, response.text())
+            .await
+            .map_err(|_| {
+                anyhow!(
+                    "response body timed out after {} seconds",
+                    idle_timeout.as_secs()
+                )
+            })?
+            .context("failed to read response body")?;
         return Err(anyhow!(
             "request returned status {} with body {}",
             status,
@@ -121,6 +149,19 @@ fn send_request(
         ));
     }
 
+    if streaming {
+        return extract_streaming_output_text(response, idle_timeout).await;
+    }
+
+    let response_text = tokio::time::timeout(idle_timeout, response.text())
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "response body timed out after {} seconds",
+                idle_timeout.as_secs()
+            )
+        })?
+        .context("failed to read response body")?;
     extract_output_text(&response_text)
 }
 
@@ -131,6 +172,7 @@ fn build_messages_request(
 ) -> Value {
     let mut body = Map::new();
     body.insert("model".to_string(), Value::String(model.model_id.clone()));
+    body.insert("stream".to_string(), json!(model.streaming));
     body.insert(
         "system".to_string(),
         Value::String(system_prompt_text.to_string()),
@@ -189,6 +231,51 @@ fn extract_output_text(response_text: &str) -> anyhow::Result<String> {
     Ok(parts.join("\n\n"))
 }
 
+async fn extract_streaming_output_text(
+    response: reqwest::Response,
+    idle_timeout: Duration,
+) -> anyhow::Result<String> {
+    let mut output = String::new();
+
+    super::streaming::read_sse_response(response, idle_timeout, |data| {
+        if data.trim() == "[DONE]" {
+            return Ok(true);
+        }
+
+        let payload = serde_json::from_str::<Value>(data)
+            .context("failed to parse anthropic messages stream event JSON")?;
+
+        if payload.get("type").and_then(Value::as_str) == Some("error") {
+            return Err(anyhow!("stream returned error {payload}"));
+        }
+
+        match payload.get("type").and_then(Value::as_str) {
+            Some("content_block_delta") => {
+                if let Some(text) = payload
+                    .get("delta")
+                    .and_then(|delta| delta.get("text"))
+                    .and_then(Value::as_str)
+                {
+                    output.push_str(text);
+                }
+            }
+            Some("message_stop") => return Ok(true),
+            _ => {}
+        }
+
+        Ok(false)
+    })
+    .await?;
+
+    if output.is_empty() {
+        return Err(anyhow!(
+            "stream response did not contain content_block_delta text"
+        ));
+    }
+
+    Ok(output)
+}
+
 fn resolve_api_key(provider: &ProviderConfig) -> anyhow::Result<String> {
     if let Some(key) = &provider.key {
         return Ok(key.clone());
@@ -233,6 +320,8 @@ mod tests {
             api_style: ApiStyle::AnthropicMessages,
             temperature: Some(0.0),
             max_output_tokens: Some(256),
+            streaming: true,
+            timeout: 300,
             extra: Default::default(),
         }
     }
@@ -242,6 +331,7 @@ mod tests {
         let request = build_messages_request(&model(), "Return JSON", "buy milk");
 
         assert_eq!(request["model"], json!("messages-model"));
+        assert_eq!(request["stream"], json!(true));
         assert_eq!(request["system"], json!("Return JSON"));
         assert_eq!(request["temperature"], json!(0.0));
         assert_eq!(request["max_tokens"], json!(256));

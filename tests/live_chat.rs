@@ -57,8 +57,12 @@ fn executes_openai_chat_completion_and_writes_output() {
     server.mock(|when, then| {
         when.method(POST).path("/chat/completions");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"choices":[{"message":{"content":"{\"todo\":\"buy milk\",\"time\":null,\"location\":\"supermarket\"}"}}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(r#"data: {"choices":[{"delta":{"content":"{\"todo\":\"buy milk\",\"time\":null,\"location\":\"supermarket\"}"}}]}
+
+data: [DONE]
+
+"#);
     });
 
     fs::write(
@@ -166,8 +170,14 @@ fn resumes_from_existing_output_without_repeating_requests() {
     let mock = server.mock(|when, then| {
         when.method(POST).path("/chat/completions");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"choices":[{"message":{"content":"ok"}}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"choices":[{"delta":{"content":"ok"}}]}
+
+data: [DONE]
+
+"#,
+            );
     });
 
     fs::write(
@@ -287,8 +297,14 @@ fn executes_scoring_pipeline_and_persists_processed_scores() {
     server.mock(|when, then| {
         when.method(POST).path("/chat/completions");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"choices":[{"message":{"content":"  clean me  "}}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"choices":[{"delta":{"content":"  clean me  "}}]}
+
+data: [DONE]
+
+"#,
+            );
     });
 
     fs::write(
@@ -432,8 +448,16 @@ fn executes_openai_responses_and_writes_output() {
     server.mock(|when, then| {
         when.method(POST).path("/responses");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"output":[{"type":"reasoning","summary":"hidden"},{"type":"message","content":[{"type":"output_text","text":"final responses output"}]}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"type":"response.reasoning.delta","delta":"hidden"}
+
+data: {"type":"response.output_text.delta","delta":"final responses output"}
+
+data: [DONE]
+
+"#,
+            );
     });
 
     fs::write(
@@ -507,8 +531,16 @@ fn executes_anthropic_messages_and_discards_thinking() {
     server.mock(|when, then| {
         when.method(POST).path("/messages");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"content":[{"type":"thinking","thinking":"hidden thoughts"},{"type":"text","text":"final anthropic output"}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"type":"thinking_delta","delta":{"thinking":"hidden thoughts"}}
+
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"final anthropic output"}}
+
+data: {"type":"message_stop"}
+
+"#,
+            );
     });
 
     fs::write(
@@ -582,14 +614,24 @@ fn executes_ai_scoring_and_writes_reports() {
     server.mock(|when, then| {
         when.method(POST).path("/chat/completions");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"choices":[{"message":{"content":"candidate answer"}}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"choices":[{"delta":{"content":"candidate answer"}}]}
+
+data: [DONE]
+
+"#,
+            );
     });
     server.mock(|when, then| {
         when.method(POST).path("/responses");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"score\":87,\"reason\":\"pretty good\"}"}]}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(r#"data: {"type":"response.output_text.delta","delta":"{\"score\":87,\"reason\":\"pretty good\"}"}
+
+data: [DONE]
+
+"#);
     });
 
     fs::write(
@@ -711,8 +753,14 @@ fn treats_same_model_id_with_different_params_as_distinct_instances() {
     let mock = server.mock(|when, then| {
         when.method(POST).path("/chat/completions");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"choices":[{"message":{"content":"ok"}}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"choices":[{"delta":{"content":"ok"}}]}
+
+data: [DONE]
+
+"#,
+            );
     });
 
     fs::write(
@@ -795,8 +843,14 @@ fn resumes_and_backfills_scores_without_repeating_benchmark_requests() {
     let chat_mock = server.mock(|when, then| {
         when.method(POST).path("/chat/completions");
         then.status(200)
-            .header("content-type", "application/json")
-            .body(r#"{"choices":[{"message":{"content":"candidate answer"}}]}"#);
+            .header("content-type", "text/event-stream")
+            .body(
+                r#"data: {"choices":[{"delta":{"content":"candidate answer"}}]}
+
+data: [DONE]
+
+"#,
+            );
     });
 
     fs::write(

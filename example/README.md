@@ -13,7 +13,7 @@ This example benchmark asks each model to extract a todo item, time, and locatio
 The directory includes:
 
 - one provider definition for OpenRouter
-- four model definitions spanning all target API styles
+- four model definitions spanning all target API styles, with streaming enabled and a 300-second read timeout
 - one strict extraction system prompt
 - ten test cases
 - one optional Lua post-processor

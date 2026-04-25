@@ -102,6 +102,8 @@ Required behavior:
 
 - keep only the user-visible final answer
 - discard reasoning and thinking content
+- support streaming by default and non-streaming when a model config sets `streaming` to `false`
+- apply each model's read `timeout` so an idle provider connection fails and enters the retry policy
 - preserve raw metadata for verbose inspection and resume state
 
 ### Retry policy

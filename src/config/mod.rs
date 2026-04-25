@@ -18,6 +18,7 @@ const PROVIDERS_FILE: &str = "providers.json";
 const MODELS_FILE: &str = "models.json";
 const SYSTEM_PROMPTS_FILE: &str = "system_prompts.json";
 const TESTS_FILE: &str = "tests.json";
+pub const DEFAULT_MODEL_TIMEOUT_SECONDS: u64 = 300;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -81,6 +82,10 @@ pub struct ModelConfig {
     pub api_style: ApiStyle,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
+    #[serde(default = "default_streaming")]
+    pub streaming: bool,
+    #[serde(default = "default_model_timeout_seconds")]
+    pub timeout: u64,
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -92,6 +97,8 @@ impl ModelConfig {
             api_style: &'a ApiStyle,
             temperature: Option<f64>,
             max_output_tokens: Option<u32>,
+            streaming: bool,
+            timeout: u64,
             extra: &'a BTreeMap<String, Value>,
         }
 
@@ -99,6 +106,8 @@ impl ModelConfig {
             api_style: &self.api_style,
             temperature: self.temperature,
             max_output_tokens: self.max_output_tokens,
+            streaming: self.streaming,
+            timeout: self.timeout,
             extra: &self.extra,
         })
         .expect("model config key serialization should succeed")
@@ -323,6 +332,14 @@ fn validate_loaded_config(loaded: &LoadedConfig) -> anyhow::Result<()> {
             ))
             .into());
         }
+
+        if model.timeout == 0 {
+            return Err(StbError::InvalidConfig(format!(
+                "model {} timeout must be greater than zero",
+                model.model_id
+            ))
+            .into());
+        }
     }
 
     let mut system_prompt_ids = BTreeSet::new();
@@ -434,13 +451,21 @@ const fn default_repeat() -> u32 {
     1
 }
 
+pub const fn default_streaming() -> bool {
+    true
+}
+
+pub const fn default_model_timeout_seconds() -> u64 {
+    DEFAULT_MODEL_TIMEOUT_SECONDS
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::{
-        ApiStyle, LoadedConfig, ModelConfig, ProviderConfig, ProviderEndpoints, TestCase,
-        TestInput, load_loose_config, resolve_selected_models,
+        ApiStyle, DEFAULT_MODEL_TIMEOUT_SECONDS, LoadedConfig, ModelConfig, ProviderConfig,
+        ProviderEndpoints, TestCase, TestInput, load_loose_config, resolve_selected_models,
     };
     use tempfile::tempdir;
 
@@ -466,6 +491,8 @@ mod tests {
             api_style: ApiStyle::OpenaiResponses,
             temperature: Some(0.0),
             max_output_tokens: Some(512),
+            streaming: true,
+            timeout: DEFAULT_MODEL_TIMEOUT_SECONDS,
             extra: Default::default(),
         }
     }
@@ -510,6 +537,41 @@ mod tests {
 
         super::validate_loaded_config(&loaded)
             .expect("models with different params should be distinct instances");
+    }
+
+    #[test]
+    fn model_defaults_enable_streaming_and_timeout() {
+        let model: ModelConfig = serde_json::from_str(
+            r#"{
+  "provider_id": "openrouter",
+  "model_id": "z-ai/glm-5.1",
+  "api_style": "openai_responses"
+}"#,
+        )
+        .expect("model should deserialize");
+
+        assert!(model.streaming);
+        assert_eq!(model.timeout, DEFAULT_MODEL_TIMEOUT_SECONDS);
+    }
+
+    #[test]
+    fn rejects_zero_model_timeout() {
+        let mut model = base_model();
+        model.timeout = 0;
+        let loaded = LoadedConfig {
+            input_dir: Path::new(".").to_path_buf(),
+            providers: vec![base_provider()],
+            models: vec![model],
+            system_prompts: vec![],
+            tests: vec![],
+        };
+
+        let error = super::validate_loaded_config(&loaded).expect_err("zero timeout should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("timeout must be greater than zero")
+        );
     }
 
     #[test]

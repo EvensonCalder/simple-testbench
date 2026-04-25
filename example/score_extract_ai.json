@@ -3,5 +3,7 @@
   "model_id": "z-ai/glm-5.1",
   "api_style": "openai_responses",
   "temperature": 0,
+  "streaming": true,
+  "timeout": 300,
   "system_prompt": "You are grading a benchmark candidate output. The benchmark input will be provided as test content. The candidate model output will be provided as the scoring target. Evaluate whether the todo text was extracted faithfully, whether the time was extracted and normalized correctly, whether the location was extracted correctly, and whether the output follows the requested JSON-only contract. Score the result from 0 to 100 as an integer. Return JSON only in the shape {\"score\": 0, \"reason\": \"short explanation\"}."
 }

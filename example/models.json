@@ -5,28 +5,36 @@
       "model_id": "z-ai/glm-5.1",
       "api_style": "openai_responses",
       "temperature": 0,
-      "max_output_tokens": 512
+      "max_output_tokens": 512,
+      "streaming": true,
+      "timeout": 300
     },
     {
       "provider_id": "openrouter",
       "model_id": "arcee-ai/trinity-large-thinking",
       "api_style": "anthropic_messages",
       "temperature": 0,
-      "max_output_tokens": 512
+      "max_output_tokens": 512,
+      "streaming": true,
+      "timeout": 300
     },
     {
       "provider_id": "openrouter",
       "model_id": "mistralai/mistral-small-2603",
       "api_style": "openai_chat_completions",
       "temperature": 0,
-      "max_output_tokens": 512
+      "max_output_tokens": 512,
+      "streaming": true,
+      "timeout": 300
     },
     {
       "provider_id": "openrouter",
       "model_id": "qwen/qwen3.5-9b",
       "api_style": "openai_chat_completions",
       "temperature": 0,
-      "max_output_tokens": 512
+      "max_output_tokens": 512,
+      "streaming": true,
+      "timeout": 300
     }
   ]
 }

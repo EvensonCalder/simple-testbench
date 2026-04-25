@@ -9,7 +9,10 @@ use serde_json::Value;
 
 use crate::{
     archive,
-    config::{ApiStyle, LoadedConfig, ModelConfig, TestCase},
+    config::{
+        ApiStyle, DEFAULT_MODEL_TIMEOUT_SECONDS, LoadedConfig, ModelConfig, TestCase,
+        default_streaming,
+    },
     error::StbError,
     llm::{self, RetryPolicy},
     output::{ScoreResult, ScoreStatus},
@@ -52,6 +55,10 @@ pub struct AiScoringConfig {
     pub api_style: ApiStyle,
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
+    #[serde(default = "default_streaming")]
+    pub streaming: bool,
+    #[serde(default = "default_ai_timeout")]
+    pub timeout: u64,
     pub system_prompt: String,
     #[serde(flatten, default)]
     pub extra: std::collections::BTreeMap<String, Value>,
@@ -232,6 +239,8 @@ fn evaluate_ai_scorer(
         api_style: config.api_style.clone(),
         temperature: config.temperature,
         max_output_tokens: config.max_output_tokens,
+        streaming: config.streaming,
+        timeout: config.timeout,
         extra: config.extra.clone(),
     };
     let benchmark_input = match llm::build_test_user_prompt(test_case) {
@@ -285,6 +294,10 @@ fn evaluate_ai_scorer(
             error: Some(error.to_string()),
         },
     }
+}
+
+const fn default_ai_timeout() -> u64 {
+    DEFAULT_MODEL_TIMEOUT_SECONDS
 }
 
 fn build_ai_judge_prompt(benchmark_input: &str, processed_output: &str) -> String {
@@ -373,10 +386,19 @@ where
         let content = load_file(&item.file)?;
         let kind = match item.kind {
             ScoringKind::Lua => LoadedScorerKind::Lua { script: content },
-            ScoringKind::Ai => LoadedScorerKind::Ai {
-                config: serde_json::from_str(&content)
-                    .with_context(|| format!("failed to parse AI scorer config {}", item.file))?,
-            },
+            ScoringKind::Ai => {
+                let config: AiScoringConfig = serde_json::from_str(&content)
+                    .with_context(|| format!("failed to parse AI scorer config {}", item.file))?;
+                if config.timeout == 0 {
+                    return Err(StbError::InvalidConfig(format!(
+                        "AI scorer {} timeout must be greater than zero",
+                        item.name
+                    ))
+                    .into());
+                }
+
+                LoadedScorerKind::Ai { config }
+            }
         };
 
         scorers.push(LoadedScorer {
@@ -509,10 +531,13 @@ mod tests {
             loaded.scorers[0].kind,
             LoadedScorerKind::Lua { .. }
         ));
-        assert!(matches!(
-            loaded.scorers[1].kind,
-            LoadedScorerKind::Ai { .. }
-        ));
+        match &loaded.scorers[1].kind {
+            LoadedScorerKind::Ai { config } => {
+                assert!(config.streaming);
+                assert_eq!(config.timeout, crate::config::DEFAULT_MODEL_TIMEOUT_SECONDS);
+            }
+            LoadedScorerKind::Lua { .. } => panic!("expected AI scorer"),
+        }
     }
 
     #[test]

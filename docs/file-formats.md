@@ -44,9 +44,9 @@ Required file.
       "api_style": "openai_responses",
       "temperature": 0,
       "max_output_tokens": 512,
-      "extra": {
-        "seed": 7
-      }
+      "streaming": true,
+      "timeout": 300,
+      "seed": 7
     }
   ]
 }
@@ -56,7 +56,9 @@ Rules:
 
 - `provider_id + model_id` is the unique logical identity
 - `api_style` selects the request adapter
-- provider-specific extras are stored in `extra`
+- `streaming` is optional and defaults to `true`
+- `timeout` is optional, measured in seconds, and defaults to `300`
+- provider-specific extras are forwarded from top-level fields that are not reserved by STB
 
 ## `system_prompts.json`
 
@@ -129,6 +131,8 @@ Optional.
   "model_id": "z-ai/glm-5.1",
   "api_style": "openai_responses",
   "temperature": 0,
+  "streaming": true,
+  "timeout": 300,
   "system_prompt": "You are a strict evaluator. Score from 0 to 100 as an integer and return JSON only."
 }
 ```

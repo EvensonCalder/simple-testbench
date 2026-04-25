@@ -158,6 +158,8 @@ mod tests {
                     api_style: ApiStyle::OpenaiChatCompletions,
                     temperature: Some(0.0),
                     max_output_tokens: Some(512),
+                    streaming: true,
+                    timeout: crate::config::DEFAULT_MODEL_TIMEOUT_SECONDS,
                     extra: Default::default(),
                 },
                 ModelConfig {
@@ -166,6 +168,8 @@ mod tests {
                     api_style: ApiStyle::OpenaiResponses,
                     temperature: Some(0.0),
                     max_output_tokens: Some(512),
+                    streaming: true,
+                    timeout: crate::config::DEFAULT_MODEL_TIMEOUT_SECONDS,
                     extra: Default::default(),
                 },
             ],

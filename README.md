@@ -186,13 +186,17 @@ Each entry is one **model instance** that will be benchmarked.
     {
       "provider_id": "openrouter",
       "model_id": "z-ai/glm-5.1",
-      "api_style": "openai_responses"
+      "api_style": "openai_responses",
+      "streaming": true,
+      "timeout": 300
     },
     {
       "provider_id": "openrouter",
       "model_id": "z-ai/glm-5.1",
       "api_style": "openai_responses",
-      "temperature": 0.7
+      "temperature": 0.7,
+      "streaming": false,
+      "timeout": 600
     }
   ]
 }
@@ -203,7 +207,9 @@ Rules:
 - Required fields: `provider_id`, `model_id`, `api_style`.
 - `temperature` is optional. If omitted, STB does **not** send the field, which is required by some providers/models that reject `temperature`.
 - `max_output_tokens` is optional. If omitted, STB does **not** send a token cap, which lets reasoning-heavy models use their own default. Set it explicitly when you need a hard ceiling.
-- Any additional provider-specific fields can be added at the top level of a model entry; they are forwarded verbatim as JSON fields in the request body.
+- `streaming` is optional and defaults to `true`. STB sends provider streaming requests and reads Server-Sent Events so long-running reasoning models can keep the connection active. Set it to `false` for providers that do not support streaming.
+- `timeout` is optional and defaults to `300` seconds. It is a per-model HTTP read timeout: if the provider connection produces no response data for this many seconds, the attempt fails and follows the retry policy.
+- Any additional provider-specific fields can be added at the top level of a model entry; except for STB-reserved fields like `streaming` and `timeout`, they are forwarded verbatim as JSON fields in the request body.
 - Two entries with the same `provider_id + model_id` are treated as **different instances** if their parameters differ. This lets you benchmark the same model at, e.g., two `temperature` values in one run.
 
 STB computes a stable `model_instance_id` from `provider_id`, `model_id`, and the effective parameter set. That instance id shows up in `output.json` and every report so results with different parameters never get averaged together.
@@ -322,6 +328,8 @@ AI scorers are declared with `"kind": "ai"` and a JSON config file:
   "provider_id": "openrouter",
   "model_id": "z-ai/glm-5.1",
   "api_style": "openai_responses",
+  "streaming": true,
+  "timeout": 300,
   "system_prompt": "You are grading extraction quality. Return JSON only in the shape {\"score\": 0-100, \"reason\": \"short explanation\"}."
 }
 ```
@@ -330,7 +338,7 @@ At judge time STB sends the provider a prompt containing the benchmark test inpu
 
 Same rules as regular models apply for the judge:
 
-- `temperature` and `max_output_tokens` are optional.
+- `temperature`, `max_output_tokens`, `streaming`, and `timeout` are optional.
 - Omit them when you want the provider default.
 
 If the judge returns invalid JSON or an out-of-range score, that score is recorded as failed on the candidate record but the rest of the run continues.
@@ -403,6 +411,9 @@ Your API key is not reaching the provider. Check that `env_key` matches an expor
 
 **Reasoning-only response, no final text**
 Some reasoning models can spend their entire output budget on hidden reasoning and return no final text. Give the model more room by setting `max_output_tokens` explicitly in `models.json`.
+
+**Request timeout while the model is still thinking**
+Streaming is enabled by default so providers can keep the connection alive while a model reasons. If a provider sends no bytes before the read timeout, increase that model's `timeout` value in `models.json`, or set `streaming` to `false` only when the provider cannot stream.
 
 **`duration_mean.csv` shows `N/A`**
 Every request for that model instance failed. Look at the `error` field of the related records in `output.json`.
