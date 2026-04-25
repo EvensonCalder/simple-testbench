@@ -74,7 +74,7 @@ pub struct TestArgs {
     pub repeat: Option<u32>,
 
     /// Override global concurrency.
-    #[arg(long = "concurrency")]
+    #[arg(long = "concurrency", value_parser = parse_positive_usize)]
     pub concurrency: Option<usize>,
 
     /// Print the resolved execution plan without running requests.
@@ -102,6 +102,17 @@ pub struct TestArgs {
 pub enum DisplayFormat {
     Table,
     Json,
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "concurrency must be a positive integer".to_string())?;
+    if parsed == 0 {
+        return Err("concurrency must be greater than zero".to_string());
+    }
+
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -157,5 +168,13 @@ mod tests {
             .expect_err("retry > 3 should fail");
 
         assert!(error.to_string().contains("0..=3"));
+    }
+
+    #[test]
+    fn rejects_zero_concurrency() {
+        let error = Cli::try_parse_from(["stb", "test", "--concurrency", "0"])
+            .expect_err("zero concurrency should fail");
+
+        assert!(error.to_string().contains("greater than zero"));
     }
 }

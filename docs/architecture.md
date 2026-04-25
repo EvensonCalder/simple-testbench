@@ -116,6 +116,12 @@ Request retries default to three attempts with delays:
 
 If all retries fail, STB disables that provider-model instance for the remainder of the run.
 
+### Execution concurrency
+
+The executor groups pending benchmark requests by provider. Each provider owns a worker pool sized by `provider.concurrency`, capped by `--concurrency` when supplied. Workers share a provider-level RPM limiter before starting requests.
+
+When a model instance fails after all retries, workers skip not-yet-started requests for that same model instance. Requests that already started before the failure may still complete.
+
 ### Post-process retry policy
 
 `post_process.lua` may request a retry and optionally set `max_retry`.

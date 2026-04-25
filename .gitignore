@@ -6,6 +6,7 @@
 stb_out_*/
 *.stbt
 *.stbs
+release/
 
 # Local secrets and scratch
 .env
